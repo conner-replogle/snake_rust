@@ -1,14 +1,15 @@
+mod seq;
 use candle_core::{DType, Device, Error, Module, Result, Tensor};
 use candle_nn::loss::mse;
 use candle_nn::ops::{log_softmax, softmax};
-use candle_nn::{
-    init, linear, seq, Activation, AdamW, Optimizer, ParamsAdamW, Sequential, VarBuilder, VarMap,
-};
+use candle_nn::{init, linear, Activation, AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use num_traits::ToPrimitive;
 use rand::prelude::Distribution;
 use rand::rngs::ThreadRng;
+use seq::Sequential;
 use std::fmt::{Debug, Formatter};
 use tracing::{debug, info};
+use crate::model::seq::seq;
 #[derive(Clone)]
 pub struct Step {
     pub input: Tensor,

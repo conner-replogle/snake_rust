@@ -3,6 +3,9 @@ name = "snake_rust"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name="multithread"
+path = "src/multithread.rs"
 [dependencies]
 candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.7.1", features = ["metal"] }
 candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.7.1", features = ["metal"] }
