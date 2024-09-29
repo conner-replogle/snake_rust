@@ -80,10 +80,9 @@ async fn main() -> Result<()> {
     let mut varmap = VarMap::new();
     varmap.load("snake_model.st")?;
 
-    let mut model = Model::new(&varmap, &device, 10 * 10 * 4, 4)?;
+    let model = Model::new(&varmap, &device, 10 * 10, 4)?;
     let mut timer = Timer::new(Duration::from_millis(300));
-    let mut draw = true;
-    let mut start_time = Instant::now();
+  
 
     for epoch_idx in 0..100 {
         let mut game = Game::<10, 10>::new();
@@ -115,7 +114,7 @@ async fn main() -> Result<()> {
                     terminated: out != GameState::Running && out != GameState::AteFood,
                     action: input as i64,
                     reward: match out {
-                        GameState::Running => 5.0,
+                        GameState::Running => 0.01,
                         GameState::AteFood => 10.0,
                         _ => -1.0,
                     },

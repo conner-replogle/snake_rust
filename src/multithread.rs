@@ -36,9 +36,7 @@ pub fn game_thread(model: &Model, device: &Device) -> Result<Vec<Step>> {
             })
             .flatten()
             .collect();
-        let tensor = Tensor::from_vec(state, (SIZE, SIZE, 4), &device)?
-            .flatten_all()?
-            .unsqueeze(0)?;
+        let tensor = Tensor::from_vec(state, (4,SIZE,SIZE), &device)?;
         let input = model.predict(&tensor, &mut rng).unwrap();
 
         game.send_input(Direction::try_from(input).unwrap());
@@ -49,8 +47,8 @@ pub fn game_thread(model: &Model, device: &Device) -> Result<Vec<Step>> {
             terminated: out != GameState::Running && out != GameState::AteFood,
             action: input as i64,
             reward: match out {
-                GameState::Running => 5.0,
-                GameState::AteFood => 10.0,
+                GameState::Running => 0.01,
+                GameState::AteFood => 5.0,
                 _ => -1.0,
             },
         };
@@ -81,11 +79,10 @@ fn main() -> Result<()> {
     let mut model = Arc::new(RwLock::new(Model::new(
         &varmap,
         &device,
-        SIZE * SIZE * 4,
+        SIZE * SIZE ,
         4,
     )?));
-    let mut timer = Timer::new(Duration::from_millis(0));
-    let mut draw = true;
+
     let mut start_time = Instant::now();
     let optimizer_params = ParamsAdamW {
         lr: 0.01,

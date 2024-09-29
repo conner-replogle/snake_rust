@@ -3,12 +3,16 @@ use crate::model::seq::seq;
 use candle_core::{DType, Device, Error, Module, Result, Tensor};
 use candle_nn::loss::mse;
 use candle_nn::ops::{log_softmax, softmax};
-use candle_nn::{init, linear, Activation, AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
+use candle_nn::{
+    conv1d, conv2d, init, linear, Activation, AdamW, Conv1d, Conv1dConfig, Conv2dConfig, Optimizer,
+    ParamsAdamW, VarBuilder, VarMap,
+};
 use num_traits::ToPrimitive;
 use rand::prelude::Distribution;
 use rand::rngs::ThreadRng;
 use seq::Sequential;
 use std::fmt::{Debug, Formatter};
+use std::iter::Flatten;
 use tracing::{debug, info};
 #[derive(Clone)]
 pub struct Step {
@@ -50,9 +54,9 @@ impl Model {
         let init_ws = init::DEFAULT_KAIMING_NORMAL;
 
         let model = seq()
-            .add(linear(space, 256, vb.pp("linear_in"))?)
-            .add(Activation::Relu)
-            .add(linear(256, 64, vb.pp("linear_hidden"))?)
+            .add(conv2d(4, 64, 4, Conv2dConfig::default(), vb.pp("conv2d"))?)
+            .add_fn(|a| a.flatten_from(1))
+            .add(linear(256, 64, vb.pp("linear_in"))?)
             .add(Activation::Relu)
             .add(linear(64, action_space, vb.pp("linear_out"))?);
 
@@ -121,6 +125,7 @@ impl Model {
             let states: Vec<Tensor> = steps.into_iter().map(|s| s.input).collect();
             Tensor::stack(&states, 0)?.detach()
         };
+        debug!("States: {:?}", states.shape());
 
         let log_probs = actions_mask
             .mul(&log_softmax(&self.nn.forward(&states).unwrap().squeeze(1).unwrap(), 1).unwrap())
