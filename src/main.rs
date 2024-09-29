@@ -77,28 +77,17 @@ async fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
     let device = Device::new_metal(0)?;
-    let varmap = VarMap::new();
+    let mut varmap = VarMap::new();
+    varmap.load("snake_model.st")?;
 
     let mut model = Model::new(&varmap, &device, 10 * 10 * 4, 4)?;
-    let mut timer = Timer::new(Duration::from_millis(0));
+    let mut timer = Timer::new(Duration::from_millis(300));
     let mut draw = true;
     let mut start_time = Instant::now();
-    let optimizer_params = ParamsAdamW {
-        lr: 0.01,
-        weight_decay: 0.01,
-        ..Default::default()
-    };
-    let mut opt = AdamW::new(varmap.all_vars(), optimizer_params)?;
 
     for epoch_idx in 0..100 {
-        info!(
-            "Starting EPOCH {epoch_idx} SecondsPerEpoch{}",
-            start_time.elapsed().as_secs_f32()
-        );
-
         let mut game = Game::<10, 10>::new();
         let mut rng = ThreadRng::default();
-        let mut steps = Vec::new();
 
         game.reset();
         loop {
@@ -132,30 +121,16 @@ async fn main() -> Result<()> {
                     },
                 };
                 debug!("Step: {:?}", step);
-                steps.push(step.clone());
 
                 if step.terminated {
                     debug!("GameState {:?} score: {:?}", out, game.score);
                     game.reset();
-                    if steps.len() > 300 {
-                        break;
-                    }
                 }
             }
 
             game.draw();
             next_frame().await;
         }
-        model.learn(steps, &device, &mut opt)?;
-        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
-        let init_ws = init::DEFAULT_KAIMING_NORMAL;
-        tracing::info!(
-            "Creating Model {:?}",
-            vb.pp("linear_in")
-                .get_with_hints((64, 400), "weight", init_ws)?
-                .to_vec2::<f32>()?[0]
-        );
     }
-    varmap.save("snake_model.st")?;
     Ok(())
 }

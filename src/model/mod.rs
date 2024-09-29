@@ -1,4 +1,5 @@
 mod seq;
+use crate::model::seq::seq;
 use candle_core::{DType, Device, Error, Module, Result, Tensor};
 use candle_nn::loss::mse;
 use candle_nn::ops::{log_softmax, softmax};
@@ -9,7 +10,6 @@ use rand::rngs::ThreadRng;
 use seq::Sequential;
 use std::fmt::{Debug, Formatter};
 use tracing::{debug, info};
-use crate::model::seq::seq;
 #[derive(Clone)]
 pub struct Step {
     pub input: Tensor,
@@ -48,14 +48,11 @@ impl Model {
         device.synchronize()?;
         let vb = VarBuilder::from_varmap(varmap, DType::F32, &device);
         let init_ws = init::DEFAULT_KAIMING_NORMAL;
-        tracing::info!(
-            "Creating Model {:?}",
-            vb.pp("linear_in")
-                .get_with_hints((64, 400), "weight", init_ws)?
-                .to_vec2::<f32>()?[0]
-        );
+
         let model = seq()
-            .add(linear(space, 64, vb.pp("linear_in"))?)
+            .add(linear(space, 256, vb.pp("linear_in"))?)
+            .add(Activation::Relu)
+            .add(linear(256, 64, vb.pp("linear_hidden"))?)
             .add(Activation::Relu)
             .add(linear(64, action_space, vb.pp("linear_out"))?);
 

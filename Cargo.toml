@@ -2,7 +2,12 @@
 name = "snake_rust"
 version = "0.1.0"
 edition = "2021"
+default-run = "snake"
 
+[[bin]]
+
+name="snake"
+path = "src/main.rs"
 [[bin]]
 name="multithread"
 path = "src/multithread.rs"

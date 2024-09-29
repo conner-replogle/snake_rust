@@ -20,7 +20,7 @@ use macroquad::prelude::*;
 use tracing::{debug, info};
 
 pub fn game_thread(model: &Model, device: &Device) -> Result<Vec<Step>> {
-    let mut game = Game::<10, 10>::new();
+    let mut game = Game::<SIZE, SIZE>::new();
     let mut steps: Vec<Step> = Vec::new();
     let mut rng = ThreadRng::default();
 
@@ -36,7 +36,7 @@ pub fn game_thread(model: &Model, device: &Device) -> Result<Vec<Step>> {
             })
             .flatten()
             .collect();
-        let tensor = Tensor::from_vec(state, (10, 10, 4), &device)?
+        let tensor = Tensor::from_vec(state, (SIZE, SIZE, 4), &device)?
             .flatten_all()?
             .unsqueeze(0)?;
         let input = model.predict(&tensor, &mut rng).unwrap();
@@ -70,7 +70,7 @@ pub fn game_thread(model: &Model, device: &Device) -> Result<Vec<Step>> {
     }
     return Ok(steps);
 }
-
+const SIZE: usize = 5;
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -78,7 +78,12 @@ fn main() -> Result<()> {
     let device = Device::new_metal(0)?;
     let varmap = VarMap::new();
 
-    let mut model = Arc::new(RwLock::new(Model::new(&varmap, &device, 10 * 10 * 4, 4)?));
+    let mut model = Arc::new(RwLock::new(Model::new(
+        &varmap,
+        &device,
+        SIZE * SIZE * 4,
+        4,
+    )?));
     let mut timer = Timer::new(Duration::from_millis(0));
     let mut draw = true;
     let mut start_time = Instant::now();
@@ -94,13 +99,12 @@ fn main() -> Result<()> {
             "Starting EPOCH {epoch_idx} SecondsPerEpoch{}",
             start_time.elapsed().as_secs_f32()
         );
+        start_time = Instant::now();
 
-        let mut game = Game::<10, 10>::new();
-        let mut rng = ThreadRng::default();
         let mut steps: Vec<Step> = Vec::new();
         let mut handles = Vec::new();
 
-        for i in 0..10 {
+        {
             let device = device.clone();
             let model = model.clone();
             let handle = std::thread::spawn(move || {
@@ -110,7 +114,6 @@ fn main() -> Result<()> {
             });
             handles.push(handle);
         }
-
         for handle in handles.into_iter() {
             if let Ok(step) = handle.join().unwrap() {
                 steps.extend(step);
@@ -119,14 +122,6 @@ fn main() -> Result<()> {
 
         let mut model = model.write().unwrap();
         model.learn(steps, &device, &mut opt)?;
-        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
-        let init_ws = init::DEFAULT_KAIMING_NORMAL;
-        tracing::info!(
-            "Creating Model {:?}",
-            vb.pp("linear_in")
-                .get_with_hints((64, 400), "weight", init_ws)?
-                .to_vec2::<f32>()?[0]
-        );
     }
     varmap.save("snake_model.st")?;
     Ok(())
