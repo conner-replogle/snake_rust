@@ -1,19 +1,16 @@
 mod seq;
 use crate::model::seq::seq;
 use candle_core::{DType, Device, Error, Module, Result, Tensor};
-use candle_nn::loss::mse;
 use candle_nn::ops::{log_softmax, softmax};
 use candle_nn::{
-    conv1d, conv2d, init, linear, Activation, AdamW, Conv1d, Conv1dConfig, Conv2dConfig, Optimizer,
-    ParamsAdamW, VarBuilder, VarMap,
+    conv2d, init, linear, Activation, AdamW, Conv2dConfig, Optimizer, VarBuilder, VarMap,
 };
 use num_traits::ToPrimitive;
 use rand::prelude::Distribution;
 use rand::rngs::ThreadRng;
 use seq::Sequential;
 use std::fmt::{Debug, Formatter};
-use std::iter::Flatten;
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 #[derive(Clone)]
 pub struct Step {
     pub input: Tensor,
@@ -36,6 +33,12 @@ fn weighted_sample(probs: Vec<f32>, rng: &mut ThreadRng) -> Result<usize> {
     let mut rng = rng;
     Ok(distribution.sample(&mut rng))
 }
+
+pub struct LearnOutput {
+    pub loss: f32,
+    pub accuracy: f32,
+}
+
 pub struct Model {
     nn: Sequential,
     space: usize,
@@ -71,7 +74,7 @@ impl Model {
         let action = {
             let logits = self
                 .nn
-                .forward(&state.detach().unsqueeze(0).unwrap())
+                .forward(&state.detach().unsqueeze(0)?)
                 .unwrap()
                 .squeeze(0)
                 .unwrap()
@@ -90,9 +93,13 @@ impl Model {
             //     .unwrap()
             //     .to_vec1()
             //     .unwrap();
-            let select = weighted_sample(action_probs, rng)? as i64;
+            let select = weighted_sample(action_probs.clone(), rng)? as i64;
 
-            debug!("Action Probability Selected {:?}", select);
+            trace!(
+                "Action Probability {:?} Selected {:?}",
+                action_probs,
+                select
+            );
             select
         };
 
@@ -125,7 +132,6 @@ impl Model {
             let states: Vec<Tensor> = steps.into_iter().map(|s| s.input).collect();
             Tensor::stack(&states, 0)?.detach()
         };
-        debug!("States: {:?}", states.shape());
 
         let log_probs = actions_mask
             .mul(&log_softmax(&self.nn.forward(&states).unwrap().squeeze(1).unwrap(), 1).unwrap())
@@ -133,6 +139,11 @@ impl Model {
             .sum(1)?;
 
         let loss = rewards.mul(&log_probs)?.neg()?.mean_all()?;
+        debug!(
+            "Loss: {:?} On {:?}",
+            loss.to_scalar::<f32>()?,
+            states.shape()
+        );
         opt.backward_step(&loss)?;
 
         Ok(())

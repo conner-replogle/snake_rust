@@ -42,7 +42,7 @@ pub enum GameState {
     AteFood,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Direction {
     Up = 0,
     Down = 1,
@@ -76,12 +76,11 @@ impl<const W: usize, const L: usize> Game<W, L> {
     pub fn new() -> Self {
         let mut matrix: SMatrix<u8, W, L> = SMatrix::zeros();
 
-
         Self {
             state: matrix,
             snake: Snake {
                 head: ((W / 2) as isize, (L / 2) as isize),
-                bodies: vec![((W / 2) as isize, (L / 2) as isize -1)],
+                bodies: vec![((W / 2) as isize, (L / 2) as isize - 1)],
                 direction: Direction::Right,
             },
             food: (0, 0),

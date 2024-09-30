@@ -1,45 +1,38 @@
+mod config;
+mod connector;
 mod game;
 mod model;
 mod timer;
-
 use ::rand::rngs::ThreadRng;
-use candle_core::backend::BackendDevice;
 use candle_core::{DType, Device, MetalDevice, Result, Tensor};
 use candle_nn::{init, AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
-use std::env::var;
-use std::ops::{Deref, Index};
-use std::sync::{Arc, Mutex, MutexGuard, RwLock};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use config::SIZE;
+use connector::get_model_input_from_game;
+use std::sync::mpsc::{self, Sender};
+use std::time::Instant;
 
 use crate::game::{Direction, Game, GameState};
 use crate::model::{Model, Step};
-use crate::timer::Timer;
 use macroquad::prelude::*;
 
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
-pub fn game_thread(model: &Model, device: &Device) -> Result<Vec<Step>> {
+pub fn game_thread(
+    state: Sender<(Tensor, Sender<Direction>)>,
+    device: &Device,
+    amount: usize,
+) -> Result<Vec<Step>> {
     let mut game = Game::<SIZE, SIZE>::new();
     let mut steps: Vec<Step> = Vec::new();
-    let mut rng = ThreadRng::default();
 
     game.reset();
     loop {
-        let state: Vec<f32> = game
-            .get_state()
-            .into_iter()
-            .map(|a| {
-                let mut state: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
-                state[*a as usize] = 1.0;
-                return state;
-            })
-            .flatten()
-            .collect();
-        let tensor = Tensor::from_vec(state, (4,SIZE,SIZE), &device)?;
-        let input = model.predict(&tensor, &mut rng).unwrap();
+        let tensor = get_model_input_from_game(&game, device)?;
+        let (send, recv) = mpsc::channel();
+        state.send((tensor.clone(), send)).unwrap();
+        let input = recv.recv().unwrap();
 
-        game.send_input(Direction::try_from(input).unwrap());
+        game.send_input(input);
         let out = game.step();
 
         let step = Step {
@@ -52,13 +45,13 @@ pub fn game_thread(model: &Model, device: &Device) -> Result<Vec<Step>> {
                 _ => -1.0,
             },
         };
-        debug!("Step: {:?}", step);
+        trace!("Step: {:?}", step);
 
         if step.terminated {
-            debug!("GameState {:?} score: {:?}", out, game.score);
+            trace!("GameState {:?} score: {:?}", out, game.score);
             game.reset();
 
-            if steps.len() > 5000 {
+            if steps.len() > amount {
                 steps.push(step);
                 break;
             }
@@ -68,7 +61,7 @@ pub fn game_thread(model: &Model, device: &Device) -> Result<Vec<Step>> {
     }
     return Ok(steps);
 }
-const SIZE: usize = 5;
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -76,12 +69,7 @@ fn main() -> Result<()> {
     let device = Device::new_metal(0)?;
     let varmap = VarMap::new();
 
-    let mut model = Arc::new(RwLock::new(Model::new(
-        &varmap,
-        &device,
-        SIZE * SIZE ,
-        4,
-    )?));
+    let mut model = Model::new(&varmap, &device, SIZE * SIZE, 4)?;
 
     let mut start_time = Instant::now();
     let optimizer_params = ParamsAdamW {
@@ -91,6 +79,9 @@ fn main() -> Result<()> {
     };
     let mut opt = AdamW::new(varmap.all_vars(), optimizer_params)?;
 
+    let (state_tx, state_rx) = std::sync::mpsc::channel::<(Tensor, Sender<Direction>)>();
+
+    let mut rng = ThreadRng::default();
     for epoch_idx in 0..100 {
         info!(
             "Starting EPOCH {epoch_idx} SecondsPerEpoch{}",
@@ -101,23 +92,30 @@ fn main() -> Result<()> {
         let mut steps: Vec<Step> = Vec::new();
         let mut handles = Vec::new();
 
-        {
+        for i in 0..8 {
+            debug!("Starting thread {i}");
             let device = device.clone();
-            let model = model.clone();
-            let handle = std::thread::spawn(move || {
-                let model = model.read().unwrap();
 
-                game_thread(&model, &device)
-            });
+            let state_tx = state_tx.clone();
+            let handle = std::thread::spawn(move || game_thread(state_tx, &device, 5000));
             handles.push(handle);
         }
-        for handle in handles.into_iter() {
-            if let Ok(step) = handle.join().unwrap() {
-                steps.extend(step);
+        loop {
+            if handles.iter().all(|a| a.is_finished()) {
+                debug!("All threads finished");
+                break;
+            }
+
+            if let Ok((tensor, send)) = state_rx.try_recv() {
+                trace!("Received state");
+                let input = model.predict(&tensor, &mut rng).unwrap();
+                send.send(Direction::try_from(input).unwrap()).unwrap();
             }
         }
+        for handle in handles {
+            steps.extend(handle.join().unwrap().unwrap());
+        }
 
-        let mut model = model.write().unwrap();
         model.learn(steps, &device, &mut opt)?;
     }
     varmap.save("snake_model.st")?;
