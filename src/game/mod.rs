@@ -42,6 +42,16 @@ pub enum GameState {
     WastedMoves,
     AteFood,
 }
+impl GameState {
+    pub fn reward(&self) -> f32 {
+        return match self {
+            GameState::Running => 0.1,
+            GameState::AteFood => 1.0,
+            GameState::WastedMoves => -0.1,
+            _ => -1.0,
+        };
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum Direction {

@@ -65,10 +65,9 @@ impl Model {
         action_space: usize,
     ) -> Result<Model> {
         let vb = VarBuilder::from_varmap(varmap, DType::F32, &device);
-        let init_ws = init::DEFAULT_KAIMING_NORMAL;
 
         let model = seq()
-            .add(conv2d(4, 64, 4, Conv2dConfig::default(), vb.pp("conv2d"))?)
+            .add(conv2d(3, 64, 4, Conv2dConfig::default(), vb.pp("conv2d"))?)
             .add_fn(|a| a.flatten_from(1))
             .add(linear(256, 64, vb.pp("linear_in"))?)
             .add(Activation::Relu)
@@ -173,7 +172,7 @@ impl Model {
     }
 }
 
-fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], usize, Vec<f32>) {
+pub fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], usize, Vec<f32>) {
     let mut rewards: Vec<f32> = steps.iter().map(|s| s.reward).collect();
     let mut acc_reward = 0f32;
     let mut games = 0;
@@ -187,5 +186,6 @@ fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], usize, Vec<f32>) {
         acc_reward += *reward;
         *reward = acc_reward;
     }
+    assert!(games == steps.iter().filter(|a| a.terminated).count());
     (moves, games, rewards)
 }

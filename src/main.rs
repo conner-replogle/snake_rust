@@ -5,7 +5,7 @@ mod model;
 mod timer;
 use ::rand::rngs::ThreadRng;
 use candle_core::backend::BackendDevice;
-use candle_core::{DType, Device, MetalDevice, Result, Tensor};
+use candle_core::{DType, Device, MetalDevice, Result, Tensor, Var};
 use candle_nn::{init, AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use config::SIZE;
 use connector::get_model_input_from_game;
@@ -33,16 +33,16 @@ async fn main() -> Result<()> {
     #[cfg(feature = "cuda")]
     let device = Device::new_cuda(0)?;
     let mut varmap = VarMap::new();
-    
-    varmap.load("models/snake_model_100.st")?;
 
     let model = Model::new(&varmap, &device, SIZE * SIZE, 4)?;
+
+    varmap.load("models/snake_model_2000.st")?;
     let mut timer = Timer::new(Duration::from_millis(300));
 
     for _ in 0..100 {
         let mut game = Game::<SIZE, SIZE>::new();
         let mut rng = ThreadRng::default();
-
+        let mut steps: Vec<Step> = Vec::new();
         game.reset();
         loop {
             if timer.tick() {
@@ -52,15 +52,32 @@ async fn main() -> Result<()> {
                 game.send_input(Direction::try_from(input).unwrap());
                 let out = game.step();
 
-                if out != GameState::Running && out != GameState::AteFood {
-                    debug!("GameState {:?} score: {:?}", out, game.score);
+                let step = Step {
+                    input: tensor,
+                    terminated: out != GameState::Running && out != GameState::AteFood,
+                    action: input as i64,
+                    reward: out.reward(),
+                };
+                trace!("Step: {:?}", step);
+
+                if step.terminated {
+                    trace!("GameState {:?} score: {:?}", out, game.score);
+
                     game.reset();
+                    if (steps.len()) > 40 {
+                        steps.push(step);
+                        break;
+                    }
                 }
+                steps.push(step);
             }
 
             game.draw();
             next_frame().await;
         }
+
+        let (dirs, games, _) = model::accumulate_rewards(&steps);
+        info!("{:?}", steps.len() / games);
     }
     Ok(())
 }

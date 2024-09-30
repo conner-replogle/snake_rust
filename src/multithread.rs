@@ -8,7 +8,7 @@ use candle_core::{DType, Device, MetalDevice, Result, Tensor};
 use candle_nn::{init, AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use config::SIZE;
 use connector::get_model_input_from_game;
-use std::fs::File;
+use std::fs::{self, File};
 use std::sync::mpsc::{self, Sender};
 use std::time::Instant;
 
@@ -40,12 +40,7 @@ pub fn game_thread(
             input: tensor,
             terminated: out != GameState::Running && out != GameState::AteFood,
             action: input as i64,
-            reward: match out {
-                GameState::Running => 0.1,
-                GameState::AteFood => 1.0,
-                GameState::WastedMoves => -0.1,
-                _ => -1.0,
-            },
+            reward: out.reward(),
         };
         trace!("Step: {:?}", step);
 
@@ -74,18 +69,23 @@ fn main() -> Result<()> {
     #[cfg(feature = "cuda")]
     let device = Device::new_cuda(0)?;
     let mut varmap = VarMap::new();
-    // if (true) {
-    //     // varmap.load("snake_model.st")?;
-    // }
 
-    let mut model = Model::new(&varmap, &device, SIZE * SIZE, 4)?;
-
-    let mut start_time = Instant::now();
+    let path = std::env::args().nth(1).expect("no name given");
 
     let out_dir = std::path::Path::new("models");
+    let out_dir = out_dir.join(path);
+    fs::create_dir(&out_dir);
+
+    let model_path = std::env::args().nth(2);
+
+    let mut model = Model::new(&varmap, &device, SIZE * SIZE, 4)?;
+    if let Some(model) = model_path {
+        varmap.load(model)?;
+    }
+    let mut start_time = Instant::now();
 
     let optimizer_params = ParamsAdamW {
-        lr: 0.001,
+        lr: 0.01,//0.003
         weight_decay: 0.00,
         ..Default::default()
     };
@@ -94,9 +94,9 @@ fn main() -> Result<()> {
     let (state_tx, state_rx) = std::sync::mpsc::channel::<(Tensor, Sender<Direction>)>();
 
     let mut rng = ThreadRng::default();
-    let epochs = 1000;
+    let epochs = 10_000;
 
-    let out_file = File::create("train_log.csv").unwrap();
+    let out_file = File::create(out_dir.join("train_log.csv")).unwrap();
     let mut wtr = csv::Writer::from_writer(out_file);
 
     for epoch_idx in 0..epochs {
@@ -109,7 +109,7 @@ fn main() -> Result<()> {
         let mut steps: Vec<Step> = Vec::new();
         let mut handles = Vec::new();
 
-        for i in 0..8 {
+        for _ in 0..8 {
             let device = device.clone();
 
             let state_tx = state_tx.clone();
@@ -141,10 +141,11 @@ fn main() -> Result<()> {
 
         wtr.flush().unwrap();
         if (epoch_idx + 1) % 100 == 0 {
-            varmap.save(out_dir.join(format!("snake_model_{}.st",epoch_idx+1)))?;
+            info!("Saving model");
+            varmap.save(out_dir.join(format!("snake_model_{}.st", epoch_idx + 1)))?;
         }
     }
-    varmap.save("snake_model.st")?;
+    varmap.save(out_dir.join(format!("snake_model.st")))?;
 
     Ok(())
 }
