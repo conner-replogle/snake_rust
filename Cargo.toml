@@ -7,8 +7,8 @@ edition = "2021"
 name="multithread"
 path = "src/multithread.rs"
 [dependencies]
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.7.1", features = ["metal"] }
-candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.7.1", features = ["metal"] }
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.7.1", features = ["cuda"] }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.7.1", features = ["cuda"] }
 macroquad = "0.4.13"
 nalgebra = "0.33.0"
 num-traits = "0.2.19"

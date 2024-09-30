@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
-    let device = Device::new_metal(0)?;
+    let device = Device::new_cuda(0)?;
     let varmap = VarMap::new();
 
     let mut model = Model::new(&varmap, &device, 10 * 10 * 4, 4)?;
