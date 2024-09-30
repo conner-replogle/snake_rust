@@ -8,6 +8,7 @@ use candle_core::{DType, Device, MetalDevice, Result, Tensor};
 use candle_nn::{init, AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use config::SIZE;
 use connector::get_model_input_from_game;
+use std::fs::File;
 use std::sync::mpsc::{self, Sender};
 use std::time::Instant;
 
@@ -66,6 +67,10 @@ fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
+    #[cfg(feature = "metal")]
+    let device = Device::new_metal(0)?;
+
+    #[cfg(feature = "cuda")]
     let device = Device::new_cuda(0)?;
     let varmap = VarMap::new();
 
@@ -73,8 +78,8 @@ fn main() -> Result<()> {
 
     let mut start_time = Instant::now();
     let optimizer_params = ParamsAdamW {
-        lr: 0.01,
-        weight_decay: 0.01,
+        lr: 0.001,
+        weight_decay: 0.00,
         ..Default::default()
     };
     let mut opt = AdamW::new(varmap.all_vars(), optimizer_params)?;
@@ -82,9 +87,14 @@ fn main() -> Result<()> {
     let (state_tx, state_rx) = std::sync::mpsc::channel::<(Tensor, Sender<Direction>)>();
 
     let mut rng = ThreadRng::default();
-    for epoch_idx in 0..20 {
+    let epochs = 300;
+
+    let out_file = File::create("train_log.csv").unwrap();
+    let mut wtr = csv::Writer::from_writer(out_file);
+
+    for epoch_idx in 0..epochs {
         info!(
-            "Starting EPOCH {epoch_idx} SecondsPerEpoch{}",
+            "Starting EPOCH {epoch_idx}/{epochs} LastEpochTime: {}",
             start_time.elapsed().as_secs_f32()
         );
         start_time = Instant::now();
@@ -116,8 +126,14 @@ fn main() -> Result<()> {
             steps.extend(handle.join().unwrap().unwrap());
         }
 
-        model.learn(steps, &device, &mut opt)?;
+        let learn = model.learn(steps, &device, &mut opt)?;
+        info!("{learn:?}");
+
+        wtr.serialize(learn).unwrap();
+
+        wtr.flush().unwrap();
     }
     varmap.save("snake_model.st")?;
+
     Ok(())
 }

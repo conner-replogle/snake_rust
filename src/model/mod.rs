@@ -5,11 +5,14 @@ use candle_nn::ops::{log_softmax, softmax};
 use candle_nn::{
     conv2d, init, linear, Activation, AdamW, Conv2dConfig, Optimizer, VarBuilder, VarMap,
 };
+use chrono::{DateTime, Utc};
 use num_traits::ToPrimitive;
 use rand::prelude::Distribution;
 use rand::rngs::ThreadRng;
 use seq::Sequential;
+use serde::Serialize;
 use std::fmt::{Debug, Formatter};
+use std::time::Instant;
 use tracing::{debug, info, trace};
 #[derive(Clone)]
 pub struct Step {
@@ -33,16 +36,21 @@ fn weighted_sample(probs: Vec<f32>, rng: &mut ThreadRng) -> Result<usize> {
     let mut rng = rng;
     Ok(distribution.sample(&mut rng))
 }
-
+#[derive(Debug, Serialize)]
 pub struct LearnOutput {
+    pub time: DateTime<Utc>,
     pub loss: f32,
-    pub accuracy: f32,
+    pub highest_reward: f32,
+    pub average_reward: f32,
+    pub steps: usize,
+    pub games: usize,
 }
 
 pub struct Model {
     nn: Sequential,
     space: usize,
     action_space: usize,
+    
 }
 
 impl Model {
@@ -105,14 +113,25 @@ impl Model {
 
         return Ok(action.to_usize().unwrap());
     }
-    pub fn learn(&mut self, steps: Vec<Step>, device: &Device, opt: &mut AdamW) -> Result<()> {
-        let rewards = Tensor::from_vec(accumulate_rewards(&steps), steps.len(), device)?
+    pub fn learn(
+        &mut self,
+        steps: Vec<Step>,
+        device: &Device,
+        opt: &mut AdamW,
+    ) -> Result<LearnOutput> {
+        let (games, rewards) = accumulate_rewards(&steps);
+        let rewards = Tensor::from_vec(rewards, steps.len(), device)?
             .to_dtype(DType::F32)?
             .detach();
-        debug!(
-            "Accumulated Rewards: {:?}",
-            rewards.to_vec1::<f32>().unwrap()[rewards.shape().dims1().unwrap() - 1]
-        );
+        let highest_reward_game = rewards
+            .to_vec1::<f32>()
+            .unwrap()
+            .into_iter()
+            .reduce(f32::max)
+            .unwrap();
+        let average_reward_game =
+            rewards.to_vec1::<f32>()?.iter().sum::<f32>() / steps.len() as f32;
+
         let actions_mask = {
             let actions: Vec<i64> = steps.iter().map(|s| s.action).collect();
             let actions_mask: Vec<Tensor> = actions
@@ -139,26 +158,32 @@ impl Model {
             .sum(1)?;
 
         let loss = rewards.mul(&log_probs)?.neg()?.mean_all()?;
-        debug!(
-            "Loss: {:?} On {:?}",
-            loss.to_scalar::<f32>()?,
-            states.shape()
-        );
+
         opt.backward_step(&loss)?;
 
-        Ok(())
+        Ok(LearnOutput {
+            time: Utc::now(),
+
+            loss: loss.to_scalar().unwrap(),
+            highest_reward: highest_reward_game,
+            average_reward: average_reward_game,
+            steps: states.shape().elem_count(),
+            games,
+        })
     }
 }
 
-fn accumulate_rewards(steps: &[Step]) -> Vec<f32> {
+fn accumulate_rewards(steps: &[Step]) -> (usize, Vec<f32>) {
     let mut rewards: Vec<f32> = steps.iter().map(|s| s.reward).collect();
     let mut acc_reward = 0f32;
+    let mut games = 0;
     for (i, reward) in rewards.iter_mut().enumerate().rev() {
         if steps[i].terminated {
             acc_reward = 0.0;
+            games += 1;
         }
         acc_reward += *reward;
         *reward = acc_reward;
     }
-    rewards
+    (games, rewards)
 }
