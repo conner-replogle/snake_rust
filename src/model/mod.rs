@@ -38,7 +38,7 @@ fn weighted_sample(probs: Vec<f32>, rng: &mut ThreadRng) -> Result<usize> {
 }
 #[derive(Debug, Serialize)]
 pub struct LearnOutput {
-    pub time: DateTime<Utc>,
+    pub time: usize,
     pub loss: f32,
     pub highest_reward: f32,
     pub average_reward: f32,
@@ -50,7 +50,6 @@ pub struct Model {
     nn: Sequential,
     space: usize,
     action_space: usize,
-    
 }
 
 impl Model {
@@ -60,7 +59,6 @@ impl Model {
         space: usize,
         action_space: usize,
     ) -> Result<Model> {
-        device.synchronize()?;
         let vb = VarBuilder::from_varmap(varmap, DType::F32, &device);
         let init_ws = init::DEFAULT_KAIMING_NORMAL;
 
@@ -88,21 +86,11 @@ impl Model {
                 .unwrap()
                 .squeeze(0)
                 .unwrap();
-            let action_probs: Vec<f32> = softmax(&logits, 0)
-                .unwrap()
-                .squeeze(0)
-                .unwrap()
-                .to_vec1::<f32>()
-                .unwrap();
+            let action_probs = softmax(&logits, 0).unwrap().squeeze(0).unwrap();
 
-            // let select: Vec<u32> = action_probs
-            //     .unsqueeze(0)?
-            //     .argmax(1)
-            //     .unwrap()
-            //     .to_vec1()
-            //     .unwrap();
-            let select = weighted_sample(action_probs.clone(), rng)? as i64;
-
+            let select: u32 = action_probs.argmax(0).unwrap().to_scalar().unwrap();
+            // let select = weighted_sample(action_probs.clone().to_vec1::<f32>().unwrap(), rng)? as i64;
+            assert!(select < self.action_space.to_u32().unwrap());
             trace!(
                 "Action Probability {:?} Selected {:?}",
                 action_probs,
@@ -156,18 +144,19 @@ impl Model {
             .mul(&log_softmax(&self.nn.forward(&states).unwrap().squeeze(1).unwrap(), 1).unwrap())
             .unwrap()
             .sum(1)?;
+        let log_probs = log_probs.clamp(-1e10, 1e10)?; // Prevent overly large log values
 
         let loss = rewards.mul(&log_probs)?.neg()?.mean_all()?;
 
         opt.backward_step(&loss)?;
 
         Ok(LearnOutput {
-            time: Utc::now(),
+            time: 0,
 
             loss: loss.to_scalar().unwrap(),
             highest_reward: highest_reward_game,
             average_reward: average_reward_game,
-            steps: states.shape().elem_count(),
+            steps: states.shape().dims()[0],
             games,
         })
     }

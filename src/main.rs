@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
                     terminated: out != GameState::Running && out != GameState::AteFood,
                     action: input as i64,
                     reward: match out {
-                        GameState::Running => 0.01,
+                        GameState::Running => -0.01,
                         GameState::AteFood => 10.0,
                         _ => -1.0,
                     },

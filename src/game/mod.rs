@@ -39,6 +39,7 @@ pub enum GameState {
     Running,
     DiedByWall,
     DiedBySelf,
+    WastedMoves,
     AteFood,
 }
 
@@ -71,6 +72,7 @@ pub struct Game<const W: usize, const L: usize> {
     snake: Snake,
     food: (usize, usize),
     pub score: usize,
+    moves_since_last_meal: usize,
 }
 impl<const W: usize, const L: usize> Game<W, L> {
     pub fn new() -> Self {
@@ -85,6 +87,7 @@ impl<const W: usize, const L: usize> Game<W, L> {
             },
             food: (0, 0),
             score: 0,
+            moves_since_last_meal: 0,
         }
     }
 
@@ -109,6 +112,7 @@ impl<const W: usize, const L: usize> Game<W, L> {
     }
     pub fn spawn_food(&mut self) {
         self.food = (rand::gen_range(0, W), rand::gen_range(0, L));
+        self.moves_since_last_meal = 0;
     }
     pub fn step(&mut self) -> GameState {
         let old_head = self.snake.head;
@@ -123,11 +127,15 @@ impl<const W: usize, const L: usize> Game<W, L> {
         head.0 += x;
         head.1 += y;
 
+        self.moves_since_last_meal += 1;
         if head.0 >= W as isize || head.1 >= L as isize || head.0 < 0 || head.1 < 0 {
             return GameState::DiedByWall;
         }
         if self.snake.bodies.contains(&head) {
             return GameState::DiedBySelf;
+        }
+        if (self.moves_since_last_meal as usize) > (W * L) {
+            return GameState::WastedMoves;
         }
 
         self.snake.bodies.push(old_head);

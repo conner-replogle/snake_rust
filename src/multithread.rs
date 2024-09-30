@@ -41,8 +41,9 @@ pub fn game_thread(
             terminated: out != GameState::Running && out != GameState::AteFood,
             action: input as i64,
             reward: match out {
-                GameState::Running => 0.25,
-                GameState::AteFood => 2.0,
+                GameState::Running => 0.1,
+                GameState::AteFood => 1.0,
+                GameState::WastedMoves => -0.1,
                 _ => -1.0,
             },
         };
@@ -87,7 +88,7 @@ fn main() -> Result<()> {
     let (state_tx, state_rx) = std::sync::mpsc::channel::<(Tensor, Sender<Direction>)>();
 
     let mut rng = ThreadRng::default();
-    let epochs = 300;
+    let epochs = 1000;
 
     let out_file = File::create("train_log.csv").unwrap();
     let mut wtr = csv::Writer::from_writer(out_file);
@@ -103,11 +104,10 @@ fn main() -> Result<()> {
         let mut handles = Vec::new();
 
         for i in 0..8 {
-            debug!("Starting thread {i}");
             let device = device.clone();
 
             let state_tx = state_tx.clone();
-            let handle = std::thread::spawn(move || game_thread(state_tx, &device, 2000));
+            let handle = std::thread::spawn(move || game_thread(state_tx, &device, 500));
             handles.push(handle);
         }
         loop {
@@ -117,16 +117,18 @@ fn main() -> Result<()> {
             }
 
             if let Ok((tensor, send)) = state_rx.try_recv() {
-                trace!("Received state");
                 let input = model.predict(&tensor, &mut rng).unwrap();
                 send.send(Direction::try_from(input).unwrap()).unwrap();
             }
         }
         for handle in handles {
-            steps.extend(handle.join().unwrap().unwrap());
+            let new_steps = handle.join().unwrap().unwrap();
+            info!("Thread finished with {} steps", new_steps.len());
+            steps.extend(new_steps);
         }
 
-        let learn = model.learn(steps, &device, &mut opt)?;
+        let mut learn = model.learn(steps, &device, &mut opt)?;
+        learn.time = epoch_idx;
         info!("{learn:?}");
 
         wtr.serialize(learn).unwrap();
