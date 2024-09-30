@@ -33,7 +33,8 @@ async fn main() -> Result<()> {
     #[cfg(feature = "cuda")]
     let device = Device::new_cuda(0)?;
     let mut varmap = VarMap::new();
-    varmap.load("snake_model.st")?;
+    
+    varmap.load("models/snake_model_100.st")?;
 
     let model = Model::new(&varmap, &device, SIZE * SIZE, 4)?;
     let mut timer = Timer::new(Duration::from_millis(300));
@@ -51,9 +52,7 @@ async fn main() -> Result<()> {
                 game.send_input(Direction::try_from(input).unwrap());
                 let out = game.step();
 
-            
-
-                if out != GameState::Running && out != GameState::AteFood{
+                if out != GameState::Running && out != GameState::AteFood {
                     debug!("GameState {:?} score: {:?}", out, game.score);
                     game.reset();
                 }

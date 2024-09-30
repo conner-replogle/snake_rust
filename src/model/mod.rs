@@ -40,10 +40,15 @@ fn weighted_sample(probs: Vec<f32>, rng: &mut ThreadRng) -> Result<usize> {
 pub struct LearnOutput {
     pub time: usize,
     pub loss: f32,
+    pub left: u32,
+    pub right: u32,
+    pub up: u32,
+    pub down: u32,
     pub highest_reward: f32,
     pub average_reward: f32,
     pub steps: usize,
     pub games: usize,
+    pub step_per_games: u32,
 }
 
 pub struct Model {
@@ -88,8 +93,9 @@ impl Model {
                 .unwrap();
             let action_probs = softmax(&logits, 0).unwrap().squeeze(0).unwrap();
 
-            let select: u32 = action_probs.argmax(0).unwrap().to_scalar().unwrap();
-            // let select = weighted_sample(action_probs.clone().to_vec1::<f32>().unwrap(), rng)? as i64;
+            // let select: u32 = action_probs.argmax(0).unwrap().to_scalar().unwrap();
+            let select =
+                weighted_sample(action_probs.clone().to_vec1::<f32>().unwrap(), rng)? as u32;
             assert!(select < self.action_space.to_u32().unwrap());
             trace!(
                 "Action Probability {:?} Selected {:?}",
@@ -107,7 +113,7 @@ impl Model {
         device: &Device,
         opt: &mut AdamW,
     ) -> Result<LearnOutput> {
-        let (games, rewards) = accumulate_rewards(&steps);
+        let (moves, games, rewards) = accumulate_rewards(&steps);
         let rewards = Tensor::from_vec(rewards, steps.len(), device)?
             .to_dtype(DType::F32)?
             .detach();
@@ -149,30 +155,37 @@ impl Model {
         let loss = rewards.mul(&log_probs)?.neg()?.mean_all()?;
 
         opt.backward_step(&loss)?;
-
+        let steps = states.shape().dims()[0];
         Ok(LearnOutput {
             time: 0,
+            left: moves[0],
+            right: moves[1],
+            up: moves[2],
+            down: moves[3],
+            step_per_games: steps as u32 / games as u32,
 
             loss: loss.to_scalar().unwrap(),
             highest_reward: highest_reward_game,
             average_reward: average_reward_game,
-            steps: states.shape().dims()[0],
+            steps,
             games,
         })
     }
 }
 
-fn accumulate_rewards(steps: &[Step]) -> (usize, Vec<f32>) {
+fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], usize, Vec<f32>) {
     let mut rewards: Vec<f32> = steps.iter().map(|s| s.reward).collect();
     let mut acc_reward = 0f32;
     let mut games = 0;
+    let mut moves = [0, 0, 0, 0];
     for (i, reward) in rewards.iter_mut().enumerate().rev() {
         if steps[i].terminated {
             acc_reward = 0.0;
             games += 1;
         }
+        moves[steps[i].action as usize] += 1;
         acc_reward += *reward;
         *reward = acc_reward;
     }
-    (games, rewards)
+    (moves, games, rewards)
 }

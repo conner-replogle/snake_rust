@@ -73,11 +73,17 @@ fn main() -> Result<()> {
 
     #[cfg(feature = "cuda")]
     let device = Device::new_cuda(0)?;
-    let varmap = VarMap::new();
+    let mut varmap = VarMap::new();
+    // if (true) {
+    //     // varmap.load("snake_model.st")?;
+    // }
 
     let mut model = Model::new(&varmap, &device, SIZE * SIZE, 4)?;
 
     let mut start_time = Instant::now();
+
+    let out_dir = std::path::Path::new("models");
+
     let optimizer_params = ParamsAdamW {
         lr: 0.001,
         weight_decay: 0.00,
@@ -134,6 +140,9 @@ fn main() -> Result<()> {
         wtr.serialize(learn).unwrap();
 
         wtr.flush().unwrap();
+        if (epoch_idx + 1) % 100 == 0 {
+            varmap.save(out_dir.join(format!("snake_model_{}.st",epoch_idx+1)))?;
+        }
     }
     varmap.save("snake_model.st")?;
 
