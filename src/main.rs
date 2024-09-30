@@ -27,6 +27,10 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
+    #[cfg(feature = "metal")]
+    let device = Device::new_metal(0)?;
+
+    #[cfg(feature = "cuda")]
     let device = Device::new_cuda(0)?;
     let mut varmap = VarMap::new();
     varmap.load("snake_model.st")?;
@@ -47,19 +51,9 @@ async fn main() -> Result<()> {
                 game.send_input(Direction::try_from(input).unwrap());
                 let out = game.step();
 
-                let step = Step {
-                    input: tensor,
-                    terminated: out != GameState::Running && out != GameState::AteFood,
-                    action: input as i64,
-                    reward: match out {
-                        GameState::Running => -0.01,
-                        GameState::AteFood => 10.0,
-                        _ => -1.0,
-                    },
-                };
-                debug!("Step: {:?}", step);
+            
 
-                if step.terminated {
+                if out != GameState::Running && out != GameState::AteFood{
                     debug!("GameState {:?} score: {:?}", out, game.score);
                     game.reset();
                 }
