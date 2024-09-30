@@ -1,6 +1,6 @@
-use candle_core::{Device, Result, Tensor};
-
 use crate::game::Game;
+use candle_core::{Device, Result, Tensor};
+use tracing::debug;
 
 pub fn get_model_input_from_game<const W: usize, const L: usize>(
     game: &Game<W, L>,
@@ -16,6 +16,12 @@ pub fn get_model_input_from_game<const W: usize, const L: usize>(
         })
         .flatten()
         .collect();
-    let tensor = Tensor::from_vec(state, (4, W, L), &device)?;
-    return Ok(tensor);
+    let tensor = Tensor::from_vec(state, (W, L, 4), &device)?;
+    debug!("Shape: {:?} Before {:?}", tensor.shape(),tensor.to_vec3::<f32>()?);
+    let output_tensor = tensor.transpose(0, 2)?.transpose(1, 2)?;
+
+    
+    debug!("Shape: {:?} After {:?}", output_tensor.shape(),output_tensor.to_vec3::<f32>()?);
+
+    return Ok(output_tensor);
 }

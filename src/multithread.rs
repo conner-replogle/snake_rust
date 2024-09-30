@@ -40,8 +40,8 @@ pub fn game_thread(
             terminated: out != GameState::Running && out != GameState::AteFood,
             action: input as i64,
             reward: match out {
-                GameState::Running => 0.01,
-                GameState::AteFood => 5.0,
+                GameState::Running => 0.25,
+                GameState::AteFood => 2.0,
                 _ => -1.0,
             },
         };
@@ -66,7 +66,7 @@ fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
-    let device = Device::new_metal(0)?;
+    let device = Device::new_cuda(0)?;
     let varmap = VarMap::new();
 
     let mut model = Model::new(&varmap, &device, SIZE * SIZE, 4)?;
@@ -82,7 +82,7 @@ fn main() -> Result<()> {
     let (state_tx, state_rx) = std::sync::mpsc::channel::<(Tensor, Sender<Direction>)>();
 
     let mut rng = ThreadRng::default();
-    for epoch_idx in 0..100 {
+    for epoch_idx in 0..20 {
         info!(
             "Starting EPOCH {epoch_idx} SecondsPerEpoch{}",
             start_time.elapsed().as_secs_f32()
@@ -97,7 +97,7 @@ fn main() -> Result<()> {
             let device = device.clone();
 
             let state_tx = state_tx.clone();
-            let handle = std::thread::spawn(move || game_thread(state_tx, &device, 5000));
+            let handle = std::thread::spawn(move || game_thread(state_tx, &device, 2000));
             handles.push(handle);
         }
         loop {
