@@ -12,6 +12,11 @@ path = "src/main.rs"
 name = "multithread"
 path = "src/multithread.rs"
 
+
+[[bin]]
+name="normal"
+path="src/normal.rs"
+
 [dependencies]
 candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.7.1", default-features = false }
 candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.7.1", default-features = false }

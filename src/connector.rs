@@ -1,16 +1,18 @@
-use crate::game::Game;
+use crate::{config::VISION_SIZE, game::Game};
 use candle_core::{Device, Result, Tensor};
+use nalgebra::SMatrix;
 use tracing::debug;
 
 pub fn get_model_input_from_game<const W: usize, const L: usize>(
     game: &Game<W, L>,
     device: &Device,
 ) -> Result<Tensor> {
-    let state: Vec<f32> = game
-        .get_state()
+    let state = game.get_snake_input();
+
+    let state: Vec<f32> = state
         .into_iter()
         .map(|a| {
-            let mut state: [f32; 3] = [0.0, 0.0, 0.0];
+            let mut state: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
             if *a == 0 {
                 return state;
             }
@@ -19,7 +21,7 @@ pub fn get_model_input_from_game<const W: usize, const L: usize>(
         })
         .flatten()
         .collect();
-    let tensor = Tensor::from_vec(state, (W, L, 3), &device)?;
+    let tensor = Tensor::from_vec(state, (VISION_SIZE, VISION_SIZE, 4), &device)?;
     // debug!("Shape: {:?} Before {:?}", tensor.shape(),tensor.to_vec3::<f32>()?);
     let output_tensor = tensor.transpose(0, 2)?.transpose(1, 2)?;
 

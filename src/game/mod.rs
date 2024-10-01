@@ -5,9 +5,11 @@ use macroquad::prelude::DARKGREEN;
 use macroquad::rand;
 use macroquad::shapes::draw_rectangle;
 use macroquad::window::{screen_height, screen_width};
-use nalgebra::SMatrix;
+use nalgebra::{DMatrix, Dyn, Matrix, MatrixSlice, MatrixView, SMatrix};
 use num_traits::Zero;
 use std::ops::IndexMut;
+
+use crate::config::VISION_SIZE;
 
 type State<const W: usize, const L: usize> = SMatrix<u8, W, L>;
 
@@ -118,6 +120,22 @@ impl<const W: usize, const L: usize> Game<W, L> {
 impl<const W: usize, const L: usize> Game<W, L> {
     pub fn get_state(&self) -> SMatrix<u8, W, L> {
         return self.state;
+    }
+
+    pub fn get_snake_input(&self) -> SMatrix<u8, VISION_SIZE, VISION_SIZE> {
+        let state = self.get_state();
+        let mut padded_state = DMatrix::repeat(W + VISION_SIZE, L + VISION_SIZE, 3);
+        padded_state
+            .index_mut((VISION_SIZE / 2..W, VISION_SIZE / 2..L))
+            .copy_from(&state);
+
+        let data = padded_state.index((
+            (self.snake.head.0 as usize - VISION_SIZE)..(self.snake.head.0 as usize + VISION_SIZE),
+            (self.snake.head.1 as usize - VISION_SIZE)..(self.snake.head.1 as usize + VISION_SIZE),
+        ));
+        let data = data.fixed_view::<VISION_SIZE, VISION_SIZE>(0, 0);
+
+        return data.into();
     }
     pub fn send_input(&mut self, direction: Direction) {
         self.snake.direction = direction
