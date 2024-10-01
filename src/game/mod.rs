@@ -1,3 +1,5 @@
+use ::rand::rngs::ThreadRng;
+use ::rand::Rng;
 use macroquad::color::{GRAY, GREEN, RED};
 use macroquad::prelude::DARKGREEN;
 use macroquad::rand;
@@ -34,7 +36,7 @@ impl From<u8> for CellState {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum GameState {
     Running,
     DiedByWall,
@@ -45,7 +47,7 @@ pub enum GameState {
 impl GameState {
     pub fn reward(&self) -> f32 {
         return match self {
-            GameState::Running => 0.1,
+            GameState::Running => 0.0,
             GameState::AteFood => 1.0,
             GameState::WastedMoves => -0.1,
             _ => -1.0,
@@ -101,14 +103,14 @@ impl<const W: usize, const L: usize> Game<W, L> {
         }
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self, rng: &mut ThreadRng) {
         self.score = 0;
         self.snake.head = (
             rand::gen_range(1, W as isize - 1),
             rand::gen_range(1, L as isize - 1),
         );
         self.snake.bodies = vec![(self.snake.head.0 - 1, self.snake.head.1)];
-        self.spawn_food();
+        self.spawn_food(rng);
         self.snake.direction = Direction::Right;
         self.generate_state();
     }
@@ -120,11 +122,14 @@ impl<const W: usize, const L: usize> Game<W, L> {
     pub fn send_input(&mut self, direction: Direction) {
         self.snake.direction = direction
     }
-    pub fn spawn_food(&mut self) {
-        self.food = (rand::gen_range(0, W), rand::gen_range(0, L));
+    pub fn spawn_food(&mut self, rng: &mut ThreadRng) {
+        self.food = (rng.gen_range(0..W), rng.gen_range(0..L));
+        while *self.state.index(self.food) != CellState::Blank as u8 {
+            self.food = (rng.gen_range(0..W), rng.gen_range(0..L));
+        }
         self.moves_since_last_meal = 0;
     }
-    pub fn step(&mut self) -> GameState {
+    pub fn step(&mut self, rng: &mut ThreadRng) -> GameState {
         let old_head = self.snake.head;
 
         let mut head = self.snake.head;
@@ -152,7 +157,7 @@ impl<const W: usize, const L: usize> Game<W, L> {
         self.snake.head = head;
 
         if self.snake.head.0 as usize == self.food.0 && self.snake.head.1 as usize == self.food.1 {
-            self.spawn_food();
+            self.spawn_food(rng);
             self.generate_state();
             self.score += 1;
             return GameState::AteFood;

@@ -25,8 +25,8 @@ pub fn game_thread(
 ) -> Result<Vec<Step>> {
     let mut game = Game::<SIZE, SIZE>::new();
     let mut steps: Vec<Step> = Vec::new();
-
-    game.reset();
+    let mut rng = ThreadRng::default();
+    game.reset(&mut rng);
     loop {
         let tensor = get_model_input_from_game(&game, device)?;
         let (send, recv) = mpsc::channel();
@@ -34,19 +34,20 @@ pub fn game_thread(
         let input = recv.recv().unwrap();
 
         game.send_input(input);
-        let out = game.step();
+        let out = game.step(&mut rng);
 
         let step = Step {
             input: tensor,
             terminated: out != GameState::Running && out != GameState::AteFood,
             action: input as i64,
             reward: out.reward(),
+            state: out,
         };
         trace!("Step: {:?}", step);
 
         if step.terminated {
             trace!("GameState {:?} score: {:?}", out, game.score);
-            game.reset();
+            game.reset(&mut rng);
 
             if steps.len() > amount {
                 steps.push(step);
@@ -85,8 +86,6 @@ fn main() -> Result<()> {
     let mut start_time = Instant::now();
 
     let optimizer_params = ParamsAdamW {
-        lr: 0.01,//0.003
-        weight_decay: 0.00,
         ..Default::default()
     };
     let mut opt = AdamW::new(varmap.all_vars(), optimizer_params)?;
@@ -113,7 +112,7 @@ fn main() -> Result<()> {
             let device = device.clone();
 
             let state_tx = state_tx.clone();
-            let handle = std::thread::spawn(move || game_thread(state_tx, &device, 500));
+            let handle = std::thread::spawn(move || game_thread(state_tx, &device, 200));
             handles.push(handle);
         }
         loop {

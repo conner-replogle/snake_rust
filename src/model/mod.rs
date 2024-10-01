@@ -1,4 +1,5 @@
 mod seq;
+use crate::game::GameState;
 use crate::model::seq::seq;
 use candle_core::{DType, Device, Error, Module, Result, Tensor};
 use candle_nn::ops::{log_softmax, softmax};
@@ -20,6 +21,7 @@ pub struct Step {
     pub reward: f32,
     pub action: i64,
     pub terminated: bool,
+    pub state: GameState,
 }
 impl Debug for Step {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -48,7 +50,12 @@ pub struct LearnOutput {
     pub average_reward: f32,
     pub steps: usize,
     pub games: usize,
-    pub step_per_games: u32,
+    pub step_per_games: f32,
+    pub max_score: u32,
+    pub avg_score: f32,
+    pub death_by_wall: u32,
+    pub death_by_self: u32,
+    pub death_wasted_moves: u32,
 }
 
 pub struct Model {
@@ -67,11 +74,17 @@ impl Model {
         let vb = VarBuilder::from_varmap(varmap, DType::F32, &device);
 
         let model = seq()
-            .add(conv2d(3, 64, 4, Conv2dConfig::default(), vb.pp("conv2d"))?)
+            .add(conv2d(
+                3,
+                32,
+                4,
+                Conv2dConfig::default(),
+                vb.pp("conv2d"),
+            )?)
             .add_fn(|a| a.flatten_from(1))
-            .add(linear(256, 64, vb.pp("linear_in"))?)
+            .add(linear(1568, 256, vb.pp("linear_in"))?)
             .add(Activation::Relu)
-            .add(linear(64, action_space, vb.pp("linear_out"))?);
+            .add(linear(256, action_space, vb.pp("linear_out"))?);
 
         Ok(Model {
             nn: model,
@@ -92,9 +105,9 @@ impl Model {
                 .unwrap();
             let action_probs = softmax(&logits, 0).unwrap().squeeze(0).unwrap();
 
-            // let select: u32 = action_probs.argmax(0).unwrap().to_scalar().unwrap();
-            let select =
-                weighted_sample(action_probs.clone().to_vec1::<f32>().unwrap(), rng)? as u32;
+            let select: u32 = action_probs.argmax(0).unwrap().to_scalar().unwrap();
+            // let select =
+                // weighted_sample(action_probs.clone().to_vec1::<f32>().unwrap(), rng)? as u32;
             assert!(select < self.action_space.to_u32().unwrap());
             trace!(
                 "Action Probability {:?} Selected {:?}",
@@ -112,7 +125,7 @@ impl Model {
         device: &Device,
         opt: &mut AdamW,
     ) -> Result<LearnOutput> {
-        let (moves, games, rewards) = accumulate_rewards(&steps);
+        let (moves, deaths, games, rewards) = accumulate_rewards(&steps);
         let rewards = Tensor::from_vec(rewards, steps.len(), device)?
             .to_dtype(DType::F32)?
             .detach();
@@ -161,31 +174,49 @@ impl Model {
             right: moves[1],
             up: moves[2],
             down: moves[3],
-            step_per_games: steps as u32 / games as u32,
+            step_per_games: steps as f32 / games.len() as f32,
 
             loss: loss.to_scalar().unwrap(),
             highest_reward: highest_reward_game,
             average_reward: average_reward_game,
             steps,
-            games,
+            games: games.len(),
+            max_score: games.iter().cloned().max().unwrap(),
+            avg_score: games.iter().cloned().sum::<u32>() as f32 / games.len() as f32,
+            death_by_wall: deaths[0],
+            death_by_self: deaths[1],
+            death_wasted_moves: deaths[2],
         })
     }
 }
 
-pub fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], usize, Vec<f32>) {
+pub fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], [u32; 3], Vec<u32>, Vec<f32>) {
     let mut rewards: Vec<f32> = steps.iter().map(|s| s.reward).collect();
     let mut acc_reward = 0f32;
-    let mut games = 0;
+    let mut games = vec![];
     let mut moves = [0, 0, 0, 0];
+    let mut deaths = [0, 0, 0];
+    let mut score = 0;
+
     for (i, reward) in rewards.iter_mut().enumerate().rev() {
         if steps[i].terminated {
             acc_reward = 0.0;
-            games += 1;
+            match steps[i].state {
+                GameState::DiedByWall => deaths[0] += 1,
+                GameState::DiedBySelf => deaths[1] += 1,
+                GameState::WastedMoves => deaths[2] += 1,
+                _ => {}
+            }
+
+            games.push(score);
+            score = 0;
+        }
+        if steps[i].state == GameState::AteFood {
+            score += 1;
         }
         moves[steps[i].action as usize] += 1;
         acc_reward += *reward;
         *reward = acc_reward;
     }
-    assert!(games == steps.iter().filter(|a| a.terminated).count());
-    (moves, games, rewards)
+    (moves, deaths, games, rewards)
 }

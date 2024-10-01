@@ -36,34 +36,35 @@ async fn main() -> Result<()> {
 
     let model = Model::new(&varmap, &device, SIZE * SIZE, 4)?;
 
-    varmap.load("models/snake_model_2000.st")?;
+    varmap.load("models/baseline_default_test/snake_model_3000.st")?;
     let mut timer = Timer::new(Duration::from_millis(300));
 
+    let mut rng = ThreadRng::default();
     for _ in 0..100 {
         let mut game = Game::<SIZE, SIZE>::new();
-        let mut rng = ThreadRng::default();
         let mut steps: Vec<Step> = Vec::new();
-        game.reset();
+        game.reset(&mut rng);
         loop {
             if timer.tick() {
                 let tensor = get_model_input_from_game(&game, &device)?;
 
                 let input = model.predict(&tensor, &mut rng).unwrap();
                 game.send_input(Direction::try_from(input).unwrap());
-                let out = game.step();
+                let out = game.step(&mut rng);
 
                 let step = Step {
                     input: tensor,
                     terminated: out != GameState::Running && out != GameState::AteFood,
                     action: input as i64,
                     reward: out.reward(),
+                    state: out,
                 };
                 trace!("Step: {:?}", step);
 
                 if step.terminated {
                     trace!("GameState {:?} score: {:?}", out, game.score);
 
-                    game.reset();
+                    game.reset(&mut rng);
                     if (steps.len()) > 40 {
                         steps.push(step);
                         break;
@@ -75,9 +76,6 @@ async fn main() -> Result<()> {
             game.draw();
             next_frame().await;
         }
-
-        let (dirs, games, _) = model::accumulate_rewards(&steps);
-        info!("{:?}", steps.len() / games);
     }
     Ok(())
 }
