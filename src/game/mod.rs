@@ -5,12 +5,12 @@ use macroquad::prelude::DARKGREEN;
 use macroquad::rand;
 use macroquad::shapes::draw_rectangle;
 use macroquad::window::{screen_height, screen_width};
-use nalgebra::SMatrix;
+use nalgebra::{DMatrix, SMatrix};
 use num_traits::{ToPrimitive, Zero};
 use std::ops::IndexMut;
 use tracing::trace;
 
-type State<const W: usize, const L: usize> = SMatrix<u8, W, L>;
+type State = DMatrix<u8>;
 
 pub struct Snake {
     head: (isize, isize),        //index
@@ -82,35 +82,35 @@ impl TryFrom<usize> for Direction {
     }
 }
 
-pub struct Game<const W: usize, const L: usize> {
-    state: State<W, L>,
+pub struct Game {
+    state: State,
+    pub size: (usize, usize),
     snake: Snake,
     food: (usize, usize),
     pub score: usize,
     moves_since_last_meal: usize,
 }
-impl<const W: usize, const L: usize> Game<W, L> {
-    pub fn new() -> Self {
-        let mut matrix: SMatrix<u8, W, L> = SMatrix::zeros();
-
+impl Game {
+    pub fn new(w: usize, h: usize) -> Self {
         Self {
-            state: matrix,
+            state: DMatrix::from_element(w, h, CellState::Blank as u8),
             snake: Snake {
-                head: ((W / 2) as isize, (L / 2) as isize),
-                bodies: vec![((W / 2) as isize, (L / 2) as isize - 1)],
+                head: ((w / 2) as isize, (h / 2) as isize),
+                bodies: vec![((w / 2) as isize, (h / 2) as isize - 1)],
                 direction: Direction::Right,
             },
             food: (0, 0),
             score: 0,
             moves_since_last_meal: 0,
+            size: (w, h),
         }
     }
 
     pub fn reset(&mut self, rng: &mut ThreadRng) {
         self.score = 0;
         self.snake.head = (
-            rand::gen_range(1, W as isize - 1),
-            rand::gen_range(1, L as isize - 1),
+            rand::gen_range(1, self.size.0 as isize - 1),
+            rand::gen_range(1, self.size.1 as isize - 1),
         );
         self.snake.bodies = vec![(self.snake.head.0 - 1, self.snake.head.1)];
         self.spawn_food(rng);
@@ -118,9 +118,9 @@ impl<const W: usize, const L: usize> Game<W, L> {
         self.generate_state();
     }
 }
-impl<const W: usize, const L: usize> Game<W, L> {
-    pub fn get_state(&self) -> SMatrix<u8, W, L> {
-        return self.state;
+impl Game {
+    pub fn get_state(&self) -> DMatrix<u8> {
+        return self.state.clone();
     }
 
     pub fn get_snake_state(&self) -> [f32; 12] {
@@ -137,7 +137,7 @@ impl<const W: usize, const L: usize> Game<W, L> {
             obstacle_state[0] = 1;
         }
         // Check down
-        if head_y == L - 1 || state[(head_x, head_y + 1)] == CellState::SnakeBody as u8 {
+        if head_y == self.size.1 - 1 || state[(head_x, head_y + 1)] == CellState::SnakeBody as u8 {
             obstacle_state[1] = 1;
         }
         // Check left
@@ -145,7 +145,7 @@ impl<const W: usize, const L: usize> Game<W, L> {
             obstacle_state[2] = 1;
         }
         // Check right
-        if head_x == W - 1 || state[(head_x + 1, head_y)] == CellState::SnakeBody as u8 {
+        if head_x == self.size.0 - 1 || state[(head_x + 1, head_y)] == CellState::SnakeBody as u8 {
             obstacle_state[3] = 1;
         }
         trace!("Obstacle Dir: {:?}", obstacle_state);
@@ -173,16 +173,16 @@ impl<const W: usize, const L: usize> Game<W, L> {
 
         let mut food_distance = [0.0; 4];
         if food_state[0] == 1 {
-            food_distance[0] = (head_y - food_y) as f32 / L as f32;
+            food_distance[0] = (head_y - food_y) as f32 / self.size.1 as f32;
         }
         if food_state[1] == 1 {
-            food_distance[1] = (food_y - head_y) as f32 / L as f32;
+            food_distance[1] = (food_y - head_y) as f32 / self.size.1 as f32;
         }
         if food_state[2] == 1 {
-            food_distance[2] = (head_x - food_x) as f32 / W as f32;
+            food_distance[2] = (head_x - food_x) as f32 / self.size.0 as f32;
         }
         if food_state[3] == 1 {
-            food_distance[3] = (food_x - head_x) as f32 / W as f32;
+            food_distance[3] = (food_x - head_x) as f32 / self.size.0 as f32;
         }
         trace!("Food Distance: {:?}", food_distance);
 
@@ -197,12 +197,12 @@ impl<const W: usize, const L: usize> Game<W, L> {
     }
     pub fn spawn_food(&mut self, rng: &mut ThreadRng) -> GameState {
         self.generate_state();
-        if (self.snake.bodies.len() + 1) >= (W * L) {
+        if (self.snake.bodies.len() + 1) >= (self.size.0 * self.size.1) {
             return GameState::Won;
         }
-        self.food = (rng.gen_range(0..W), rng.gen_range(0..L));
+        self.food = (rng.gen_range(0..self.size.0), rng.gen_range(0..self.size.1));
         while *self.state.index(self.food) != CellState::Blank as u8 {
-            self.food = (rng.gen_range(0..W), rng.gen_range(0..L));
+            self.food = (rng.gen_range(0..self.size.0), rng.gen_range(0..self.size.1));
         }
         self.moves_since_last_meal = 0;
         return GameState::AteFood;
@@ -221,13 +221,17 @@ impl<const W: usize, const L: usize> Game<W, L> {
         head.1 += y;
 
         self.moves_since_last_meal += 1;
-        if head.0 >= W as isize || head.1 >= L as isize || head.0 < 0 || head.1 < 0 {
+        if head.0 >= self.size.0 as isize
+            || head.1 >= self.size.1 as isize
+            || head.0 < 0
+            || head.1 < 0
+        {
             return GameState::DiedByWall;
         }
         if self.snake.bodies.contains(&head) {
             return GameState::DiedBySelf;
         }
-        if (self.moves_since_last_meal as usize) > (W * L) {
+        if (self.moves_since_last_meal as usize) > (self.size.0 * self.size.1) {
             return GameState::WastedMoves;
         }
 
@@ -248,7 +252,7 @@ impl<const W: usize, const L: usize> Game<W, L> {
         return GameState::Running;
     }
     fn generate_state(&mut self) {
-        self.state.set_zero();
+        self.state = DMatrix::from_element(self.size.0, self.size.1, CellState::Blank as u8);
 
         *self.state.index_mut(self.food) = CellState::Food as u8;
         *self
@@ -266,16 +270,17 @@ impl<const W: usize, const L: usize> Game<W, L> {
     }
 }
 
-impl<const W: usize, const L: usize> Game<W, L> {
+impl Game {
     pub fn draw(&self) {
         let width = screen_width();
         let height = screen_height();
         let padding = 10.0;
         let gap: f32 = 1.10; //% of cell_size
-        let cell_size = (width.min(height) - 2.0 * padding) * (2.0 - gap) / (W.min(L) as f32);
+        let cell_size = (width.min(height) - 2.0 * padding) * (2.0 - gap)
+            / (self.size.0.min(self.size.1) as f32);
 
-        for i in 0..(W * L) {
-            let (x, y) = (i % W, i / L);
+        for i in 0..(self.size.0 * self.size.1) {
+            let (x, y) = (i % self.size.0, i / self.size.1);
             let (pix_x, pix_y) = (
                 padding + (cell_size * gap) * x as f32,
                 padding + (cell_size * gap) * y as f32,

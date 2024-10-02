@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
 
     let mut rng = ThreadRng::default();
     for _ in 0..100 {
-        let mut game = Game::<SIZE, SIZE>::new();
+        let mut game = Game::new(SIZE, SIZE);
         let mut steps: Vec<Step> = Vec::new();
         game.reset(&mut rng);
         loop {

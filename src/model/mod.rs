@@ -82,7 +82,7 @@ impl NerualNet {
     pub fn new(varmap: &VarMap, device: &Device) -> Result<Self> {
         let vb = VarBuilder::from_varmap(varmap, DType::F32, &device);
         let out_c = 64;
-        let k = 3;
+        let k = 2;
         let conv_seq = seq()
             .add(conv2d(
                 3,

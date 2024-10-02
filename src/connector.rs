@@ -2,10 +2,7 @@ use crate::game::Game;
 use candle_core::{Device, Result, Tensor};
 use tracing::debug;
 
-pub fn get_model_input_from_game<const W: usize, const L: usize>(
-    game: &Game<W, L>,
-    device: &Device,
-) -> Result<(Tensor, Tensor)> {
+pub fn get_model_input_from_game(game: &Game, device: &Device) -> Result<(Tensor, Tensor)> {
     let state: Vec<f32> = game
         .get_state()
         .into_iter()
@@ -19,7 +16,7 @@ pub fn get_model_input_from_game<const W: usize, const L: usize>(
         })
         .flatten()
         .collect();
-    let tensor = Tensor::from_vec(state, (W, L, 3), &device)?;
+    let tensor = Tensor::from_vec(state, (game.size.0, game.size.1, 3), &device)?;
     // debug!("Shape: {:?} Before {:?}", tensor.shape(),tensor.to_vec3::<f32>()?);
     let conv_tensor = tensor.transpose(0, 2)?.transpose(1, 2)?;
     let snake_state = game.get_snake_state();

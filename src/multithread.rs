@@ -22,8 +22,11 @@ pub fn game_thread(
     state: Sender<((Tensor, Tensor), Sender<Direction>)>,
     device: &Device,
     amount: usize,
+    width: usize,
+    height: usize,
 ) -> Result<Vec<Step>> {
-    let mut game = Game::<SIZE, SIZE>::new();
+    let mut game = Game::new(width, height);
+
     let mut steps: Vec<Step> = Vec::new();
     let mut rng = ThreadRng::default();
     game.reset(&mut rng);
@@ -106,14 +109,21 @@ fn main() -> Result<()> {
         );
         start_time = Instant::now();
 
-        let mut steps: Vec<Step> = Vec::new();
+        let mut steps = Vec::new();
         let mut handles = Vec::new();
-
-        for i in 0..8 {
+        const SIZES: [(usize, usize); 4] = [
+            (5, 5),
+            (8, 8),
+            (10, 10),
+            (15, 15),
+        ];
+        for i in 0..4 {
             let device = device.clone();
 
             let state_tx = state_tx.clone();
-            let handle = std::thread::spawn(move || game_thread(state_tx, &device, 200));
+            let handle = std::thread::spawn(move || {
+                game_thread(state_tx, &device, 200, SIZES[i].0, SIZES[i].1)
+            });
             handles.push((i, handle));
         }
         loop {
@@ -129,7 +139,7 @@ fn main() -> Result<()> {
                 let (a, handle) = handles.remove(i);
                 let new_steps = handle.join().unwrap().unwrap();
                 debug!("Thread {a} finished with {} steps", new_steps.len());
-                steps.extend(new_steps);
+                steps.push((a, new_steps));
             }
 
             match state_rx.try_recv() {
@@ -144,14 +154,16 @@ fn main() -> Result<()> {
                 }
             }
         }
+        for (a,step) in steps.into_iter() {
+            let mut learn = model.learn(step, &device, &mut opt)?;
+            learn.time = epoch_idx;
+            info!("{:?} {learn:?}",SIZES[a]);
 
-        let mut learn = model.learn(steps, &device, &mut opt)?;
-        learn.time = epoch_idx;
-        info!("{learn:?}");
+            wtr.serialize(learn).unwrap();
 
-        wtr.serialize(learn).unwrap();
+            wtr.flush().unwrap();
+        }
 
-        wtr.flush().unwrap();
         if (epoch_idx + 1) % 100 == 0 {
             info!("Saving model");
             varmap.save(out_dir.join(format!("snake_model_{}.st", epoch_idx + 1)))?;
