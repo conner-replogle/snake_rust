@@ -72,19 +72,24 @@ impl Model {
         action_space: usize,
     ) -> Result<Model> {
         let vb = VarBuilder::from_varmap(varmap, DType::F32, &device);
-
+        let out_c = 8;
+        let k = 2;
         let model = seq()
             .add(conv2d(
                 3,
-                32,
-                4,
+                out_c,
+                k,
                 Conv2dConfig::default(),
                 vb.pp("conv2d"),
             )?)
             .add_fn(|a| a.flatten_from(1))
-            .add(linear(1568, 256, vb.pp("linear_in"))?)
+            .add(linear(
+                out_c * (space - (k - 1)) * (space - (k - 1)),
+                64,
+                vb.pp("linear_in"),
+            )?)
             .add(Activation::Relu)
-            .add(linear(256, action_space, vb.pp("linear_out"))?);
+            .add(linear(64, action_space, vb.pp("linear_out"))?);
 
         Ok(Model {
             nn: model,
@@ -107,7 +112,7 @@ impl Model {
 
             let select: u32 = action_probs.argmax(0).unwrap().to_scalar().unwrap();
             // let select =
-                // weighted_sample(action_probs.clone().to_vec1::<f32>().unwrap(), rng)? as u32;
+            // weighted_sample(action_probs.clone().to_vec1::<f32>().unwrap(), rng)? as u32;
             assert!(select < self.action_space.to_u32().unwrap());
             trace!(
                 "Action Probability {:?} Selected {:?}",

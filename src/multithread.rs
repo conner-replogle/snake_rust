@@ -79,7 +79,7 @@ fn main() -> Result<()> {
 
     let model_path = std::env::args().nth(2);
 
-    let mut model = Model::new(&varmap, &device, SIZE * SIZE, 4)?;
+    let mut model = Model::new(&varmap, &device, SIZE , 4)?;
     if let Some(model) = model_path {
         varmap.load(model)?;
     }
@@ -112,7 +112,7 @@ fn main() -> Result<()> {
             let device = device.clone();
 
             let state_tx = state_tx.clone();
-            let handle = std::thread::spawn(move || game_thread(state_tx, &device, 200));
+            let handle = std::thread::spawn(move || game_thread(state_tx, &device, 500));
             handles.push(handle);
         }
         loop {

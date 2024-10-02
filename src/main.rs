@@ -32,11 +32,12 @@ async fn main() -> Result<()> {
 
     #[cfg(feature = "cuda")]
     let device = Device::new_cuda(0)?;
+    let path = std::env::args().nth(1).expect("no name given");
     let mut varmap = VarMap::new();
 
-    let model = Model::new(&varmap, &device, SIZE * SIZE, 4)?;
+    let model = Model::new(&varmap, &device, SIZE, 4)?;
 
-    varmap.load("models/baseline_default_test/snake_model_3000.st")?;
+    varmap.load(path)?;
     let mut timer = Timer::new(Duration::from_millis(300));
 
     let mut rng = ThreadRng::default();
