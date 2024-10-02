@@ -19,7 +19,7 @@ use macroquad::prelude::*;
 use tracing::{debug, info, trace};
 
 pub fn game_thread(
-    state: Sender<(Tensor, Sender<Direction>)>,
+    state: Sender<((Tensor, Tensor), Sender<Direction>)>,
     device: &Device,
     amount: usize,
 ) -> Result<Vec<Step>> {
@@ -28,7 +28,7 @@ pub fn game_thread(
     let mut rng = ThreadRng::default();
     game.reset(&mut rng);
     loop {
-        let tensor = get_model_input_from_game(&game, device)?;
+        let tensor = get_model_input_from_game(&game, device).unwrap();
         let (send, recv) = mpsc::channel();
         state.send((tensor.clone(), send)).unwrap();
         let input = recv.recv().unwrap();
@@ -79,18 +79,19 @@ fn main() -> Result<()> {
 
     let model_path = std::env::args().nth(2);
 
-    let mut model = Model::new(&varmap, &device, SIZE , 4)?;
+    let mut model = Model::new(&varmap, &device, SIZE, 4)?;
     if let Some(model) = model_path {
         varmap.load(model)?;
     }
     let mut start_time = Instant::now();
 
     let optimizer_params = ParamsAdamW {
+        // lr:0.0001,
         ..Default::default()
     };
     let mut opt = AdamW::new(varmap.all_vars(), optimizer_params)?;
 
-    let (state_tx, state_rx) = std::sync::mpsc::channel::<(Tensor, Sender<Direction>)>();
+    let (state_tx, state_rx) = std::sync::mpsc::channel::<((Tensor, Tensor), Sender<Direction>)>();
 
     let mut rng = ThreadRng::default();
     let epochs = 10_000;
@@ -108,28 +109,40 @@ fn main() -> Result<()> {
         let mut steps: Vec<Step> = Vec::new();
         let mut handles = Vec::new();
 
-        for _ in 0..8 {
+        for i in 0..8 {
             let device = device.clone();
 
             let state_tx = state_tx.clone();
-            let handle = std::thread::spawn(move || game_thread(state_tx, &device, 500));
-            handles.push(handle);
+            let handle = std::thread::spawn(move || game_thread(state_tx, &device, 200));
+            handles.push((i, handle));
         }
         loop {
-            if handles.iter().all(|a| a.is_finished()) {
-                debug!("All threads finished");
+            let mut i = 0;
+            if handles.len() == 0 {
                 break;
             }
-
-            if let Ok((tensor, send)) = state_rx.try_recv() {
-                let input = model.predict(&tensor, &mut rng).unwrap();
-                send.send(Direction::try_from(input).unwrap()).unwrap();
+            while i < handles.len() {
+                if !handles[i].1.is_finished() {
+                    i += 1;
+                    continue;
+                }
+                let (a, handle) = handles.remove(i);
+                let new_steps = handle.join().unwrap().unwrap();
+                debug!("Thread {a} finished with {} steps", new_steps.len());
+                steps.extend(new_steps);
             }
-        }
-        for handle in handles {
-            let new_steps = handle.join().unwrap().unwrap();
-            info!("Thread finished with {} steps", new_steps.len());
-            steps.extend(new_steps);
+
+            match state_rx.try_recv() {
+                Ok((tensor, send)) => {
+                    let input = model.predict(&tensor, &mut rng).unwrap();
+                    send.send(Direction::try_from(input).unwrap()).unwrap();
+                }
+                Err(err) => {
+                    if err != std::sync::mpsc::TryRecvError::Empty {
+                        panic!("Error {:?}", err);
+                    }
+                }
+            }
         }
 
         let mut learn = model.learn(steps, &device, &mut opt)?;

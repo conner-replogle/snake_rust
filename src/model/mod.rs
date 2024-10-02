@@ -17,7 +17,7 @@ use std::time::Instant;
 use tracing::{debug, info, trace};
 #[derive(Clone)]
 pub struct Step {
-    pub input: Tensor,
+    pub input: (Tensor, Tensor),
     pub reward: f32,
     pub action: i64,
     pub terminated: bool,
@@ -56,10 +56,73 @@ pub struct LearnOutput {
     pub death_by_wall: u32,
     pub death_by_self: u32,
     pub death_wasted_moves: u32,
+    pub wons: u32,
+}
+
+fn global_max_pool2d(tensor: &Tensor) -> Result<Tensor> {
+    // Get the shape of the input tensor
+    let shape = tensor.shape().dims4()?;
+
+    // Assume input tensor is in the format (batch_size, channels, height, width)
+    let height = shape.2; // Get height of the feature map
+    let width = shape.3; // Get width of the feature map
+
+    // Apply max pooling with kernel size equal to the entire height and width of the feature map
+    let pooled_tensor = tensor.max_pool2d((height, width))?;
+    // The result will have spatial dimensions of (1, 1), reducing it to (batch_size, channels, 1, 1)
+    Ok(pooled_tensor)
+}
+
+pub struct NerualNet {
+    conv_net: Sequential,
+    num_net: Sequential,
+    out_net: Sequential,
+}
+impl NerualNet {
+    pub fn new(varmap: &VarMap, device: &Device) -> Result<Self> {
+        let vb = VarBuilder::from_varmap(varmap, DType::F32, &device);
+        let out_c = 64;
+        let k = 3;
+        let conv_seq = seq()
+            .add(conv2d(
+                3,
+                out_c,
+                k,
+                Conv2dConfig::default(),
+                vb.pp("conv2d"),
+            )?)
+            .add_fn(|a| global_max_pool2d(a)?.flatten_from(1)); // Global pooling to handle variable input sizes
+        let num_seq = seq()
+            .add(linear(12, 64, vb.pp("num_linear1"))?)
+            .add(Activation::Relu)
+            .add(linear(64, 64, vb.pp("num_linear2"))?)
+            .add(Activation::Relu);
+
+        let output_seq = seq()
+            .add(linear(out_c + 64, 128, vb.pp("out_linear1"))?)
+            .add(Activation::Relu)
+            .add(linear(128, 4, vb.pp("out_linear2"))?);
+        return Ok(NerualNet {
+            conv_net: conv_seq,
+            num_net: num_seq,
+            out_net: output_seq,
+        });
+    }
+    pub fn forward(&self, input: &(Tensor, Tensor)) -> Result<Tensor> {
+        let input = if input.0.shape().dims().len() == 3 {
+            (input.0.unsqueeze(0)?, input.1.unsqueeze(0)?)
+        } else {
+            input.clone()
+        };
+        let conv = self.conv_net.forward(&input.0)?;
+        let num = self.num_net.forward(&input.1)?;
+        let out = self.out_net.forward(&Tensor::cat(&[conv, num], 1)?);
+        return out;
+    }
 }
 
 pub struct Model {
-    nn: Sequential,
+    nn: NerualNet,
     space: usize,
     action_space: usize,
 }
@@ -71,43 +134,17 @@ impl Model {
         space: usize,
         action_space: usize,
     ) -> Result<Model> {
-        let vb = VarBuilder::from_varmap(varmap, DType::F32, &device);
-        let out_c = 8;
-        let k = 2;
-        let model = seq()
-            .add(conv2d(
-                3,
-                out_c,
-                k,
-                Conv2dConfig::default(),
-                vb.pp("conv2d"),
-            )?)
-            .add_fn(|a| a.flatten_from(1))
-            .add(linear(
-                out_c * (space - (k - 1)) * (space - (k - 1)),
-                64,
-                vb.pp("linear_in"),
-            )?)
-            .add(Activation::Relu)
-            .add(linear(64, action_space, vb.pp("linear_out"))?);
-
+        let nn = NerualNet::new(varmap, device)?;
         Ok(Model {
-            nn: model,
+            nn,
             space,
             action_space,
         })
     }
 
-    pub fn predict(&self, state: &Tensor, rng: &mut ThreadRng) -> Result<usize> {
+    pub fn predict(&self, state: &(Tensor, Tensor), rng: &mut ThreadRng) -> Result<usize> {
         let action = {
-            let logits = self
-                .nn
-                .forward(&state.detach().unsqueeze(0)?)
-                .unwrap()
-                .squeeze(0)
-                .unwrap()
-                .squeeze(0)
-                .unwrap();
+            let logits = self.nn.forward(state).unwrap().squeeze(0).unwrap();
             let action_probs = softmax(&logits, 0).unwrap().squeeze(0).unwrap();
 
             let select: u32 = action_probs.argmax(0).unwrap().to_scalar().unwrap();
@@ -158,9 +195,12 @@ impl Model {
             Tensor::stack(&actions_mask, 0)?.detach()
         };
 
-        let states = {
-            let states: Vec<Tensor> = steps.into_iter().map(|s| s.input).collect();
-            Tensor::stack(&states, 0)?.detach()
+        let states: (Tensor, Tensor) = {
+            let (a, b): (Vec<Tensor>, Vec<Tensor>) = steps.into_iter().map(|s| s.input).unzip();
+            (
+                Tensor::stack(&a, 0)?.detach(),
+                Tensor::stack(&b, 0)?.detach(),
+            )
         };
 
         let log_probs = actions_mask
@@ -172,7 +212,7 @@ impl Model {
         let loss = rewards.mul(&log_probs)?.neg()?.mean_all()?;
 
         opt.backward_step(&loss)?;
-        let steps = states.shape().dims()[0];
+        let steps = states.1.shape().dims()[0];
         Ok(LearnOutput {
             time: 0,
             left: moves[0],
@@ -191,16 +231,17 @@ impl Model {
             death_by_wall: deaths[0],
             death_by_self: deaths[1],
             death_wasted_moves: deaths[2],
+            wons: deaths[3],
         })
     }
 }
 
-pub fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], [u32; 3], Vec<u32>, Vec<f32>) {
+pub fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], [u32; 4], Vec<u32>, Vec<f32>) {
     let mut rewards: Vec<f32> = steps.iter().map(|s| s.reward).collect();
     let mut acc_reward = 0f32;
     let mut games = vec![];
     let mut moves = [0, 0, 0, 0];
-    let mut deaths = [0, 0, 0];
+    let mut deaths = [0, 0, 0, 0];
     let mut score = 0;
 
     for (i, reward) in rewards.iter_mut().enumerate().rev() {
@@ -210,6 +251,7 @@ pub fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], [u32; 3], Vec<u32>, Vec<
                 GameState::DiedByWall => deaths[0] += 1,
                 GameState::DiedBySelf => deaths[1] += 1,
                 GameState::WastedMoves => deaths[2] += 1,
+                GameState::Won => deaths[3] += 1,
                 _ => {}
             }
 

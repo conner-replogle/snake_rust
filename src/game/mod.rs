@@ -6,8 +6,9 @@ use macroquad::rand;
 use macroquad::shapes::draw_rectangle;
 use macroquad::window::{screen_height, screen_width};
 use nalgebra::SMatrix;
-use num_traits::Zero;
+use num_traits::{ToPrimitive, Zero};
 use std::ops::IndexMut;
+use tracing::trace;
 
 type State<const W: usize, const L: usize> = SMatrix<u8, W, L>;
 
@@ -43,6 +44,7 @@ pub enum GameState {
     DiedBySelf,
     WastedMoves,
     AteFood,
+    Won,
 }
 impl GameState {
     pub fn reward(&self) -> f32 {
@@ -50,6 +52,7 @@ impl GameState {
             GameState::Running => 0.0,
             GameState::AteFood => 1.0,
             GameState::WastedMoves => -0.1,
+            GameState::Won => 5.0,
             _ => -1.0,
         };
     }
@@ -119,15 +122,90 @@ impl<const W: usize, const L: usize> Game<W, L> {
     pub fn get_state(&self) -> SMatrix<u8, W, L> {
         return self.state;
     }
+
+    pub fn get_snake_state(&self) -> [f32; 12] {
+        let state = self.get_state();
+        let (head_x, head_y) = self.snake.head;
+        let (head_x, head_y) = (head_x as usize, head_y as usize);
+        let mut snake_state = [0.0; 12];
+        let mut obstacle_state = [0; 4];
+
+        trace!("Head: {:?} ", (head_x, head_y));
+
+        // Check up
+        if head_y == 0 || state[(head_x, head_y - 1)] == CellState::SnakeBody as u8 {
+            obstacle_state[0] = 1;
+        }
+        // Check down
+        if head_y == L - 1 || state[(head_x, head_y + 1)] == CellState::SnakeBody as u8 {
+            obstacle_state[1] = 1;
+        }
+        // Check left
+        if head_x == 0 || state[(head_x - 1, head_y)] == CellState::SnakeBody as u8 {
+            obstacle_state[2] = 1;
+        }
+        // Check right
+        if head_x == W - 1 || state[(head_x + 1, head_y)] == CellState::SnakeBody as u8 {
+            obstacle_state[3] = 1;
+        }
+        trace!("Obstacle Dir: {:?}", obstacle_state);
+        let mut food_state = [0; 4];
+        let (food_x, food_y) = self.food;
+
+        // Check up
+        if food_y < head_y {
+            food_state[0] = 1;
+        }
+        // Check down
+        if food_y > head_y {
+            food_state[1] = 1;
+        }
+        // Check left
+        if food_x < head_x {
+            food_state[2] = 1;
+        }
+        // Check right
+        if food_x > head_x {
+            food_state[3] = 1;
+        }
+
+        trace!("Food Dir: {:?}", food_state);
+
+        let mut food_distance = [0.0; 4];
+        if food_state[0] == 1 {
+            food_distance[0] = (head_y - food_y) as f32 / L as f32;
+        }
+        if food_state[1] == 1 {
+            food_distance[1] = (food_y - head_y) as f32 / L as f32;
+        }
+        if food_state[2] == 1 {
+            food_distance[2] = (head_x - food_x) as f32 / W as f32;
+        }
+        if food_state[3] == 1 {
+            food_distance[3] = (food_x - head_x) as f32 / W as f32;
+        }
+        trace!("Food Distance: {:?}", food_distance);
+
+        snake_state[8..12].copy_from_slice(&food_distance);
+        snake_state[4..8].copy_from_slice(&food_state.map(|a| a.to_f32().unwrap()));
+        snake_state[0..4].copy_from_slice(&obstacle_state.map(|a| a.to_f32().unwrap()));
+
+        snake_state
+    }
     pub fn send_input(&mut self, direction: Direction) {
         self.snake.direction = direction
     }
-    pub fn spawn_food(&mut self, rng: &mut ThreadRng) {
+    pub fn spawn_food(&mut self, rng: &mut ThreadRng) -> GameState {
+        self.generate_state();
+        if (self.snake.bodies.len() + 1) >= (W * L) {
+            return GameState::Won;
+        }
         self.food = (rng.gen_range(0..W), rng.gen_range(0..L));
         while *self.state.index(self.food) != CellState::Blank as u8 {
             self.food = (rng.gen_range(0..W), rng.gen_range(0..L));
         }
         self.moves_since_last_meal = 0;
+        return GameState::AteFood;
     }
     pub fn step(&mut self, rng: &mut ThreadRng) -> GameState {
         let old_head = self.snake.head;
@@ -157,10 +235,11 @@ impl<const W: usize, const L: usize> Game<W, L> {
         self.snake.head = head;
 
         if self.snake.head.0 as usize == self.food.0 && self.snake.head.1 as usize == self.food.1 {
-            self.spawn_food(rng);
+            let out = self.spawn_food(rng);
             self.generate_state();
             self.score += 1;
-            return GameState::AteFood;
+
+            return out;
         } else {
             self.snake.bodies.remove(0);
         }

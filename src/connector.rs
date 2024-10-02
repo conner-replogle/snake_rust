@@ -5,7 +5,7 @@ use tracing::debug;
 pub fn get_model_input_from_game<const W: usize, const L: usize>(
     game: &Game<W, L>,
     device: &Device,
-) -> Result<Tensor> {
+) -> Result<(Tensor, Tensor)> {
     let state: Vec<f32> = game
         .get_state()
         .into_iter()
@@ -21,9 +21,10 @@ pub fn get_model_input_from_game<const W: usize, const L: usize>(
         .collect();
     let tensor = Tensor::from_vec(state, (W, L, 3), &device)?;
     // debug!("Shape: {:?} Before {:?}", tensor.shape(),tensor.to_vec3::<f32>()?);
-    let output_tensor = tensor.transpose(0, 2)?.transpose(1, 2)?;
+    let conv_tensor = tensor.transpose(0, 2)?.transpose(1, 2)?;
+    let snake_state = game.get_snake_state();
 
     // debug!("Shape: {:?} After {:?}", output_tensor.shape(),output_tensor.to_vec3::<f32>()?);
 
-    return Ok(output_tensor);
+    return Ok((conv_tensor, Tensor::from_slice(&snake_state, 12, device)?));
 }

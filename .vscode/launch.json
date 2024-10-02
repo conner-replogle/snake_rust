@@ -1,0 +1,124 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'human'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=human",
+                    "--package=snake_rust"
+                ],
+                "filter": {
+                    "name": "human",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'human'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=human",
+                    "--package=snake_rust"
+                ],
+                "filter": {
+                    "name": "human",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'multithread'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=multithread",
+                    "--package=snake_rust",
+                    
+                ],
+                "filter": {
+                    "name": "multithread",
+                    "kind": "bin"
+                }
+            },
+            "env": {
+        "RUST_LOG": "debug"
+      },
+            "args": ["new_arch_test"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'multithread'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=multithread",
+                    "--package=snake_rust",
+                    "models/new_arch_test"
+                ],
+                "filter": {
+                    "name": "multithread",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'snake'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=snake",
+                    "--package=snake_rust"
+                ],
+                "filter": {
+                    "name": "snake",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'snake'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=snake",
+                    "--package=snake_rust"
+                ],
+                "filter": {
+                    "name": "snake",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
