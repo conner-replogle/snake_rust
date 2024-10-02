@@ -7,12 +7,14 @@ use candle_nn::{
     conv2d, init, linear, Activation, AdamW, Conv2dConfig, Optimizer, VarBuilder, VarMap,
 };
 use chrono::{DateTime, Utc};
+use derive_more::derive::{Add, AddAssign, Mul};
 use num_traits::ToPrimitive;
 use rand::prelude::Distribution;
 use rand::rngs::ThreadRng;
 use seq::Sequential;
 use serde::Serialize;
 use std::fmt::{Debug, Formatter};
+use std::ops::Add;
 use std::time::Instant;
 use tracing::{debug, info, trace};
 #[derive(Clone)]
@@ -38,7 +40,7 @@ fn weighted_sample(probs: Vec<f32>, rng: &mut ThreadRng) -> Result<usize> {
     let mut rng = rng;
     Ok(distribution.sample(&mut rng))
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Default)]
 pub struct LearnOutput {
     pub time: usize,
     pub loss: f32,
@@ -57,6 +59,7 @@ pub struct LearnOutput {
     pub death_by_self: u32,
     pub death_wasted_moves: u32,
     pub wons: u32,
+    pub shape: usize,
 }
 
 fn global_max_pool2d(tensor: &Tensor) -> Result<Tensor> {
@@ -81,8 +84,8 @@ pub struct NerualNet {
 impl NerualNet {
     pub fn new(varmap: &VarMap, device: &Device) -> Result<Self> {
         let vb = VarBuilder::from_varmap(varmap, DType::F32, &device);
-        let out_c = 64;
-        let k = 2;
+        let out_c = 8;
+        let k = 3;
         let conv_seq = seq()
             .add(conv2d(
                 3,
@@ -94,8 +97,6 @@ impl NerualNet {
             .add_fn(|a| global_max_pool2d(a)?.flatten_from(1)); // Global pooling to handle variable input sizes
         let num_seq = seq()
             .add(linear(12, 64, vb.pp("num_linear1"))?)
-            .add(Activation::Relu)
-            .add(linear(64, 64, vb.pp("num_linear2"))?)
             .add(Activation::Relu);
 
         let output_seq = seq()
@@ -115,6 +116,7 @@ impl NerualNet {
             input.clone()
         };
         let conv = self.conv_net.forward(&input.0)?;
+
         let num = self.num_net.forward(&input.1)?;
         let out = self.out_net.forward(&Tensor::cat(&[conv, num], 1)?);
         return out;
@@ -220,7 +222,7 @@ impl Model {
             up: moves[2],
             down: moves[3],
             step_per_games: steps as f32 / games.len() as f32,
-
+            shape: states.0.shape().dims()[3],
             loss: loss.to_scalar().unwrap(),
             highest_reward: highest_reward_game,
             average_reward: average_reward_game,
@@ -244,6 +246,8 @@ pub fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], [u32; 4], Vec<u32>, Vec<
     let mut deaths = [0, 0, 0, 0];
     let mut score = 0;
 
+    let size = steps[0].input.0.shape().dims()[1];
+
     for (i, reward) in rewards.iter_mut().enumerate().rev() {
         if steps[i].terminated {
             acc_reward = 0.0;
@@ -254,16 +258,18 @@ pub fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], [u32; 4], Vec<u32>, Vec<
                 GameState::Won => deaths[3] += 1,
                 _ => {}
             }
-
-            games.push(score);
-            score = 0;
+            if i != 0 {
+                games.push(score);
+                score = 0;
+            }
         }
         if steps[i].state == GameState::AteFood {
             score += 1;
         }
         moves[steps[i].action as usize] += 1;
-        acc_reward += *reward;
+        acc_reward += *reward / size as f32;
         *reward = acc_reward;
     }
+    games.push(score);
     (moves, deaths, games, rewards)
 }

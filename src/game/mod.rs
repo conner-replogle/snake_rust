@@ -8,7 +8,7 @@ use macroquad::window::{screen_height, screen_width};
 use nalgebra::{DMatrix, SMatrix};
 use num_traits::{ToPrimitive, Zero};
 use std::ops::IndexMut;
-use tracing::trace;
+use tracing::{debug, trace};
 
 type State = DMatrix<u8>;
 
@@ -88,7 +88,7 @@ pub struct Game {
     snake: Snake,
     food: (usize, usize),
     pub score: usize,
-    moves_since_last_meal: usize,
+    pub moves_since_last_meal: usize,
 }
 impl Game {
     pub fn new(w: usize, h: usize) -> Self {
@@ -112,6 +112,7 @@ impl Game {
             rand::gen_range(1, self.size.0 as isize - 1),
             rand::gen_range(1, self.size.1 as isize - 1),
         );
+        self.moves_since_last_meal = 0;
         self.snake.bodies = vec![(self.snake.head.0 - 1, self.snake.head.1)];
         self.spawn_food(rng);
         self.snake.direction = Direction::Right;
@@ -197,6 +198,7 @@ impl Game {
     }
     pub fn spawn_food(&mut self, rng: &mut ThreadRng) -> GameState {
         self.generate_state();
+
         if (self.snake.bodies.len() + 1) >= (self.size.0 * self.size.1) {
             return GameState::Won;
         }
@@ -231,7 +233,8 @@ impl Game {
         if self.snake.bodies.contains(&head) {
             return GameState::DiedBySelf;
         }
-        if (self.moves_since_last_meal as usize) > (self.size.0 * self.size.1) {
+
+        if (self.moves_since_last_meal as f32) >= ((self.size.0 * self.size.1) as f32 * 0.5) {
             return GameState::WastedMoves;
         }
 

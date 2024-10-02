@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
     let model = Model::new(&varmap, &device, SIZE, 4)?;
 
     varmap.load(path)?;
-    let mut timer = Timer::new(Duration::from_millis(300));
+    let mut timer = Timer::new(Duration::from_millis(100));
 
     let mut rng = ThreadRng::default();
     for _ in 0..100 {
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
                 };
                 trace!("Step: {:?}", step);
 
-                if step.terminated {
+                if step.terminated || is_key_down(KeyCode::Space) {
                     trace!("GameState {:?} score: {:?}", out, game.score);
 
                     game.reset(&mut rng);

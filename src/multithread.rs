@@ -8,6 +8,8 @@ use candle_core::{DType, Device, MetalDevice, Result, Tensor};
 use candle_nn::{init, AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use config::SIZE;
 use connector::get_model_input_from_game;
+use model::LearnOutput;
+use serde::de;
 use std::fs::{self, File};
 use std::sync::mpsc::{self, Sender};
 use std::time::Instant;
@@ -30,6 +32,7 @@ pub fn game_thread(
     let mut steps: Vec<Step> = Vec::new();
     let mut rng = ThreadRng::default();
     game.reset(&mut rng);
+    let mut games = 0;
     loop {
         let tensor = get_model_input_from_game(&game, device).unwrap();
         let (send, recv) = mpsc::channel();
@@ -50,12 +53,14 @@ pub fn game_thread(
 
         if step.terminated {
             trace!("GameState {:?} score: {:?}", out, game.score);
-            game.reset(&mut rng);
+            games += 1;
 
             if steps.len() > amount {
                 steps.push(step);
                 break;
             }
+
+            game.reset(&mut rng);
         }
 
         steps.push(step);
@@ -101,22 +106,26 @@ fn main() -> Result<()> {
 
     let out_file = File::create(out_dir.join("train_log.csv")).unwrap();
     let mut wtr = csv::Writer::from_writer(out_file);
-
+    let mut last_x_deltas = Vec::new();
     for epoch_idx in 0..epochs {
+        let delta = start_time.elapsed().as_secs_f32();
+        last_x_deltas.push(delta);
+        if (last_x_deltas.len() as u32) > 10 {
+            last_x_deltas.remove(0);
+        }
+        let eta = last_x_deltas.iter().sum::<f32>() / last_x_deltas.len() as f32
+            * (epochs - epoch_idx) as f32;
+
         info!(
-            "Starting EPOCH {epoch_idx}/{epochs} LastEpochTime: {}",
-            start_time.elapsed().as_secs_f32()
+            "Starting EPOCH {epoch_idx}/{epochs} LastEpochTime: {} Eta: {} mins",
+            delta,
+            eta / 60.0
         );
         start_time = Instant::now();
 
         let mut steps = Vec::new();
         let mut handles = Vec::new();
-        const SIZES: [(usize, usize); 4] = [
-            (5, 5),
-            (8, 8),
-            (10, 10),
-            (15, 15),
-        ];
+        const SIZES: [(usize, usize); 4] = [(5, 5), (8, 8), (10, 10), (15, 15)];
         for i in 0..4 {
             let device = device.clone();
 
@@ -154,15 +163,17 @@ fn main() -> Result<()> {
                 }
             }
         }
-        for (a,step) in steps.into_iter() {
+
+        let mut total_learn = LearnOutput::default();
+        for (a, step) in steps.into_iter() {
             let mut learn = model.learn(step, &device, &mut opt)?;
             learn.time = epoch_idx;
-            info!("{:?} {learn:?}",SIZES[a]);
 
+            info!("{:?} {learn:?}", SIZES[a]);
             wtr.serialize(learn).unwrap();
-
-            wtr.flush().unwrap();
         }
+
+        wtr.flush().unwrap();
 
         if (epoch_idx + 1) % 100 == 0 {
             info!("Saving model");
