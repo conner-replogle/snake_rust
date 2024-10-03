@@ -33,7 +33,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 [features]
 # Define a feature for CUDA support
-cuda = ["candle-core/cuda", "candle-nn/cuda"]
+cuda = ["candle-core/cudnn", "candle-nn/cuda"]
 
 # Define a feature for Metal support
 metal = ["candle-core/metal", "candle-nn/metal"]

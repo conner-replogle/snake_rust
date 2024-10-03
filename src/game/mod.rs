@@ -234,7 +234,9 @@ impl Game {
             return GameState::DiedBySelf;
         }
 
-        if (self.moves_since_last_meal as f32) >= ((self.size.0 * self.size.1) as f32 * 0.5) {
+        if (self.moves_since_last_meal as f32)
+            >= ((self.size.0 * self.size.1) as f32 * 0.8).max(25.0)
+        {
             return GameState::WastedMoves;
         }
 

@@ -84,23 +84,27 @@ pub struct NerualNet {
 impl NerualNet {
     pub fn new(varmap: &VarMap, device: &Device) -> Result<Self> {
         let vb = VarBuilder::from_varmap(varmap, DType::F32, &device);
-        let out_c = 8;
+        let out_c = 64;
         let k = 3;
         let conv_seq = seq()
             .add(conv2d(
-                3,
+                4,
                 out_c,
                 k,
-                Conv2dConfig::default(),
+                Conv2dConfig {
+                    padding: 1,
+                    ..Default::default()
+                },
                 vb.pp("conv2d"),
             )?)
+            .add(Activation::Relu)
             .add_fn(|a| global_max_pool2d(a)?.flatten_from(1)); // Global pooling to handle variable input sizes
         let num_seq = seq()
             .add(linear(12, 64, vb.pp("num_linear1"))?)
             .add(Activation::Relu);
 
         let output_seq = seq()
-            .add(linear(out_c + 64, 128, vb.pp("out_linear1"))?)
+            .add(linear(128, 128, vb.pp("out_linear1"))?)
             .add(Activation::Relu)
             .add(linear(128, 4, vb.pp("out_linear2"))?);
         return Ok(NerualNet {
@@ -118,6 +122,9 @@ impl NerualNet {
         let conv = self.conv_net.forward(&input.0)?;
 
         let num = self.num_net.forward(&input.1)?;
+        let num = num.zeros_like()?;
+
+        // let conv = conv.zeros_like()?;
         let out = self.out_net.forward(&Tensor::cat(&[conv, num], 1)?);
         return out;
     }
@@ -267,7 +274,10 @@ pub fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], [u32; 4], Vec<u32>, Vec<
             score += 1;
         }
         moves[steps[i].action as usize] += 1;
-        acc_reward += *reward / size as f32;
+        if *reward != 0.0 {
+            acc_reward = *reward / size as f32;
+        }
+        acc_reward *= 0.95;
         *reward = acc_reward;
     }
     games.push(score);

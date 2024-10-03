@@ -10,7 +10,7 @@ use config::SIZE;
 use connector::get_model_input_from_game;
 use model::LearnOutput;
 use serde::de;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::sync::mpsc::{self, Sender};
 use std::time::Instant;
 
@@ -80,12 +80,50 @@ fn main() -> Result<()> {
     let mut varmap = VarMap::new();
 
     let path = std::env::args().nth(1).expect("no name given");
+    let keep = std::env::args().nth(2).is_some() && std::env::args().nth(2).unwrap() == "-r";
 
     let out_dir = std::path::Path::new("models");
     let out_dir = out_dir.join(path);
-    fs::create_dir(&out_dir);
+    let mut starting_epoch = 0;
+    let mut model_path = if (!keep) {
+        std::env::args().nth(2)
+    } else {
+        None
+    };
+    if let Err(a) = fs::create_dir(&out_dir) {
+        info!("Already exists");
+        if keep && model_path == None {
+            let mut largest_model = None;
 
-    let model_path = std::env::args().nth(2);
+            for entry in fs::read_dir(&out_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                        if file_name.starts_with("snake_model_") && file_name.ends_with(".st") {
+                            let epoch = file_name
+                                .trim_start_matches("snake_model_")
+                                .trim_end_matches(".st")
+                                .parse::<usize>()
+                                .unwrap();
+                            if epoch > starting_epoch {
+                                starting_epoch = epoch;
+                                largest_model = Some(path);
+                            }
+                        }
+                    }
+                }
+            }
+            info!(
+                "Starting from {} with {}",
+                starting_epoch,
+                largest_model.as_ref().unwrap().to_str().unwrap()
+            );
+            if let Some(largest_model) = largest_model {
+                model_path = Some(largest_model.to_str().unwrap().to_string());
+            }
+        }
+    }
 
     let mut model = Model::new(&varmap, &device, SIZE, 4)?;
     if let Some(model) = model_path {
@@ -104,10 +142,16 @@ fn main() -> Result<()> {
     let mut rng = ThreadRng::default();
     let epochs = 10_000;
 
-    let out_file = File::create(out_dir.join("train_log.csv")).unwrap();
-    let mut wtr = csv::Writer::from_writer(out_file);
+    let out_file = match keep {
+        true => OpenOptions::new()
+            .append(true)
+            .open(out_dir.join("train_log.csv")),
+        false => File::create(out_dir.join("train_log.csv")),
+    };
+    let mut wtr = csv::Writer::from_writer(out_file.unwrap());
+
     let mut last_x_deltas = Vec::new();
-    for epoch_idx in 0..epochs {
+    for epoch_idx in starting_epoch..epochs {
         let delta = start_time.elapsed().as_secs_f32();
         last_x_deltas.push(delta);
         if (last_x_deltas.len() as u32) > 10 {
@@ -131,7 +175,13 @@ fn main() -> Result<()> {
 
             let state_tx = state_tx.clone();
             let handle = std::thread::spawn(move || {
-                game_thread(state_tx, &device, 200, SIZES[i].0, SIZES[i].1)
+                game_thread(
+                    state_tx,
+                    &device,
+                    50 * SIZES[i].0.min(200),
+                    SIZES[i].0,
+                    SIZES[i].1,
+                )
             });
             handles.push((i, handle));
         }
@@ -164,12 +214,11 @@ fn main() -> Result<()> {
             }
         }
 
-        let mut total_learn = LearnOutput::default();
         for (a, step) in steps.into_iter() {
             let mut learn = model.learn(step, &device, &mut opt)?;
             learn.time = epoch_idx;
 
-            info!("{:?} {learn:?}", SIZES[a]);
+            info!("{learn:?}");
             wtr.serialize(learn).unwrap();
         }
 
