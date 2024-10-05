@@ -1,22 +1,17 @@
-mod config;
-mod connector;
-mod game;
-mod model;
-mod timer;
 use ::rand::rngs::ThreadRng;
 use candle_core::{DType, Device, MetalDevice, Result, Tensor};
 use candle_nn::{init, AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
-use config::SIZE;
-use connector::get_model_input_from_game;
-use model::LearnOutput;
 use serde::de;
+use snake_rust::config::SIZE;
+use snake_rust::connector::get_model_input_from_game;
+use snake_rust::model::LearnOutput;
 use std::fs::{self, File, OpenOptions};
 use std::sync::mpsc::{self, Sender};
 use std::time::Instant;
 
-use crate::game::{Direction, Game, GameState};
-use crate::model::{Model, Step};
 use macroquad::prelude::*;
+use snake_rust::game::{Direction, Game, GameState};
+use snake_rust::model::{Model, Step};
 
 use tracing::{debug, info, trace};
 
@@ -125,7 +120,7 @@ fn main() -> Result<()> {
         }
     }
 
-    let mut model = Model::new(&varmap, &device, SIZE, 4)?;
+    let mut model = Model::new(&varmap, &device)?;
     if let Some(model) = model_path {
         varmap.load(model)?;
     }
@@ -178,9 +173,9 @@ fn main() -> Result<()> {
                 game_thread(
                     state_tx,
                     &device,
-                    50 * SIZES[i].0.min(200),
-                    SIZES[i].0,
-                    SIZES[i].1,
+                    50 * SIZES[3].0.min(200),
+                    SIZES[3].0,
+                    SIZES[3].1,
                 )
             });
             handles.push((i, handle));

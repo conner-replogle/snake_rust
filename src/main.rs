@@ -1,24 +1,20 @@
-mod config;
-mod connector;
-mod game;
-mod model;
-mod timer;
 use ::rand::rngs::ThreadRng;
 use candle_core::backend::BackendDevice;
 use candle_core::{DType, Device, MetalDevice, Result, Tensor, Var};
 use candle_nn::{init, AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
-use config::SIZE;
-use connector::get_model_input_from_game;
+use chrono::TimeDelta;
+use snake_rust::config::SIZE;
+use snake_rust::connector::get_model_input_from_game;
 use std::env::var;
 use std::ops::Index;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use crate::game::{Direction, Game, GameState};
-use crate::model::{Model, Step};
-use crate::timer::Timer;
 use macroquad::prelude::*;
+use snake_rust::game::{Direction, Game, GameState};
+use snake_rust::model::{Model, Step};
+use snake_rust::timer::Timer;
 
 use tracing::{debug, info};
 
@@ -35,10 +31,10 @@ async fn main() -> Result<()> {
     let path = std::env::args().nth(1).expect("no name given");
     let mut varmap = VarMap::new();
 
-    let model = Model::new(&varmap, &device, SIZE, 4)?;
+    let model = Model::new(&varmap, &device)?;
 
     varmap.load(path)?;
-    let mut timer = Timer::new(Duration::from_millis(100));
+    let mut timer = Timer::new(TimeDelta::milliseconds(100));
 
     let mut rng = ThreadRng::default();
     for _ in 0..100 {

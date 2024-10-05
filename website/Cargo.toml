@@ -1,0 +1,15 @@
+[package]
+name = "website"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+snake_rust = { path = "../../snake_rust",default-features = false,features = ["wasm"]}
+macroquad = "0.4.13"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+anyhow = "1.0.89"
+rand = {version="0.8.5"}
+chrono = "0.4.38"
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.7.1", default-features = false }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.7.1", default-features = false }

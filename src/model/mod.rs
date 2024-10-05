@@ -82,9 +82,8 @@ pub struct NerualNet {
     out_net: Sequential,
 }
 impl NerualNet {
-    pub fn new(varmap: &VarMap, device: &Device) -> Result<Self> {
-        let vb = VarBuilder::from_varmap(varmap, DType::F32, &device);
-        let out_c = 64;
+    pub fn new(vb: VarBuilder, device: &Device) -> Result<Self> {
+        let out_c = 32;
         let k = 3;
         let conv_seq = seq()
             .add(conv2d(
@@ -97,16 +96,26 @@ impl NerualNet {
                 },
                 vb.pp("conv2d"),
             )?)
+            .add(conv2d(
+                out_c,
+                16,
+                5,
+                Conv2dConfig {
+                    padding: 1,
+                    ..Default::default()
+                },
+                vb.pp("conv2d2"),
+            )?)
             .add(Activation::Relu)
-            .add_fn(|a| global_max_pool2d(a)?.flatten_from(1)); // Global pooling to handle variable input sizes
+            .add_fn(|a| a.flatten_from(1)); // Global pooling to handle variable input sizes
         let num_seq = seq()
             .add(linear(12, 64, vb.pp("num_linear1"))?)
             .add(Activation::Relu);
 
         let output_seq = seq()
-            .add(linear(128, 128, vb.pp("out_linear1"))?)
+            .add(linear(2768, 256, vb.pp("out_linear1"))?)
             .add(Activation::Relu)
-            .add(linear(128, 4, vb.pp("out_linear2"))?);
+            .add(linear(256, 4, vb.pp("out_linear2"))?);
         return Ok(NerualNet {
             conv_net: conv_seq,
             num_net: num_seq,
@@ -132,22 +141,28 @@ impl NerualNet {
 
 pub struct Model {
     nn: NerualNet,
-    space: usize,
-    action_space: usize,
+
 }
 
 impl Model {
     pub fn new(
         varmap: &VarMap,
-        device: &Device,
-        space: usize,
-        action_space: usize,
+        device: &Device
+
     ) -> Result<Model> {
-        let nn = NerualNet::new(varmap, device)?;
+        let vb = VarBuilder::from_varmap(varmap, DType::F32, device);
+        let nn = NerualNet::new(vb, device)?;
         Ok(Model {
             nn,
-            space,
-            action_space,
+
+        })
+    }
+
+    pub fn load(device:&Device,  data: &[u8]) -> Result<Self> {
+        let vb = VarBuilder::from_slice_safetensors(data, DType::F32,device)?;
+        let nn = NerualNet::new(vb, &Device::Cpu)?;
+        Ok(Model{
+            nn,
         })
     }
 
@@ -159,7 +174,7 @@ impl Model {
             let select: u32 = action_probs.argmax(0).unwrap().to_scalar().unwrap();
             // let select =
             // weighted_sample(action_probs.clone().to_vec1::<f32>().unwrap(), rng)? as u32;
-            assert!(select < self.action_space.to_u32().unwrap());
+            assert!(select < 4);
             trace!(
                 "Action Probability {:?} Selected {:?}",
                 action_probs,
@@ -195,10 +210,10 @@ impl Model {
                 .iter()
                 .map(|&action| {
                     // One-hot encoding
-                    let mut action_mask: Vec<f32> = vec![0.0; self.action_space];
+                    let mut action_mask: Vec<f32> = vec![0.0; 4];
                     action_mask[action as usize] = 1.0;
 
-                    Tensor::from_vec(action_mask, self.action_space, &device).unwrap()
+                    Tensor::from_vec(action_mask, 4, &device).unwrap()
                 })
                 .collect();
             Tensor::stack(&actions_mask, 0)?.detach()

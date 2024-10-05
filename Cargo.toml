@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 default-run = "multithread"
 
+
+[lib]
+
+
 [[bin]]
 name = "snake"
 path = "src/main.rs"
@@ -22,22 +26,21 @@ candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.7.
 chrono = { version = "0.4.38", features = ["serde"] }
 csv = "1.3.0"
 derive_more = { version = "1.0.0", features = ["add", "add_assign", "mul"] }
-macroquad = "0.4.13"
+macroquad = {version="0.4.13"}
 nalgebra = "0.33.0"
 num-traits = "0.2.19"
-rand = "0.8.5"
+rand = {version="0.8.5"}
 serde = { version = "1.0.210", features = ["derive"] }
-tokio = { version = "1.40.0", features = ["full"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-
+getrandom = {version = "*",features = ["js"]}
 [features]
 # Define a feature for CUDA support
 cuda = ["candle-core/cudnn", "candle-nn/cuda"]
 
 # Define a feature for Metal support
 metal = ["candle-core/metal", "candle-nn/metal"]
-
+wasm = []
 default=[
     "cuda"
 ]

@@ -1,24 +1,19 @@
-mod config;
-mod connector;
-mod game;
-mod model;
-mod timer;
 use ::rand::rngs::ThreadRng;
 use candle_core::backend::BackendDevice;
 use candle_core::{DType, Device, MetalDevice, Result, Tensor, Var};
 use candle_nn::{init, AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
-use config::SIZE;
-use connector::get_model_input_from_game;
+use snake_rust::config::SIZE;
+use snake_rust::connector::get_model_input_from_game;
 use std::env::var;
 use std::ops::Index;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use crate::game::{Direction, Game, GameState};
-use crate::model::{Model, Step};
-use crate::timer::Timer;
 use macroquad::prelude::*;
+use snake_rust::game::{Direction, Game, GameState};
+use snake_rust::model::{Model, Step};
+use snake_rust::timer::Timer;
 
 use tracing::{debug, info};
 
