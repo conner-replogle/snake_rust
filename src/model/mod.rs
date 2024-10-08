@@ -83,27 +83,18 @@ pub struct NerualNet {
 }
 impl NerualNet {
     pub fn new(vb: VarBuilder, device: &Device) -> Result<Self> {
-        let out_c = 32;
-        let k = 3;
+        let out_c = 16;
+        let k = 6;
         let conv_seq = seq()
             .add(conv2d(
                 4,
                 out_c,
                 k,
                 Conv2dConfig {
-                    padding: 1,
+                    padding:1,
                     ..Default::default()
                 },
                 vb.pp("conv2d"),
-            )?)
-            .add(conv2d(
-                out_c,
-                48,
-                4,
-                Conv2dConfig {
-                    ..Default::default()
-                },
-                vb.pp("conv2d2"),
             )?)
             .add(Activation::Relu)
             .add_fn(|a| global_max_pool2d(a)?.flatten_from(1)); // Global pooling to handle variable input sizes
@@ -112,9 +103,9 @@ impl NerualNet {
             .add(Activation::Relu);
 
         let output_seq = seq()
-            .add(linear(48+64, 256, vb.pp("out_linear1"))?)
+            .add(linear(64+64, 128, vb.pp("out_linear1"))?)
             .add(Activation::Relu)
-            .add(linear(256, 4, vb.pp("out_linear2"))?);
+            .add(linear(128, 4, vb.pp("out_linear2"))?);
         return Ok(NerualNet {
             conv_net: conv_seq,
             num_net: num_seq,
@@ -132,9 +123,15 @@ impl NerualNet {
         let num = self.num_net.forward(&input.1)?;
         let num = num.zeros_like()?;
 
-        // let conv = conv.zeros_like()?;
+        let conv = conv.zeros_like()?;
         let out = self.out_net.forward(&Tensor::cat(&[conv, num], 1)?);
         return out;
+    }
+}
+impl NerualNet{
+    pub fn draw(){
+
+
     }
 }
 
