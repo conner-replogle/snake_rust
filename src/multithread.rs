@@ -5,9 +5,11 @@ use serde::de;
 use snake_rust::config::SIZE;
 use snake_rust::connector::get_model_input_from_game;
 use snake_rust::model::LearnOutput;
+use tracing_subscriber::EnvFilter;
 use std::fs::{self, File, OpenOptions};
 use std::sync::mpsc::{self, Sender};
 use std::time::Instant;
+use tracing::level_filters::LevelFilter;
 
 use macroquad::prelude::*;
 use snake_rust::game::{Direction, Game, GameState};
@@ -65,8 +67,9 @@ pub fn game_thread(
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    .with_env_filter(EnvFilter::from_default_env().add_directive("debug".parse().unwrap()))
+    .init();
+
     #[cfg(feature = "metal")]
     let device = Device::new_metal(0)?;
 

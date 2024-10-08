@@ -98,22 +98,21 @@ impl NerualNet {
             )?)
             .add(conv2d(
                 out_c,
-                16,
-                5,
+                48,
+                4,
                 Conv2dConfig {
-                    padding: 1,
                     ..Default::default()
                 },
                 vb.pp("conv2d2"),
             )?)
             .add(Activation::Relu)
-            .add_fn(|a| a.flatten_from(1)); // Global pooling to handle variable input sizes
+            .add_fn(|a| global_max_pool2d(a)?.flatten_from(1)); // Global pooling to handle variable input sizes
         let num_seq = seq()
             .add(linear(12, 64, vb.pp("num_linear1"))?)
             .add(Activation::Relu);
 
         let output_seq = seq()
-            .add(linear(2768, 256, vb.pp("out_linear1"))?)
+            .add(linear(48+64, 256, vb.pp("out_linear1"))?)
             .add(Activation::Relu)
             .add(linear(256, 4, vb.pp("out_linear2"))?);
         return Ok(NerualNet {
@@ -141,29 +140,19 @@ impl NerualNet {
 
 pub struct Model {
     nn: NerualNet,
-
 }
 
 impl Model {
-    pub fn new(
-        varmap: &VarMap,
-        device: &Device
-
-    ) -> Result<Model> {
+    pub fn new(varmap: &VarMap, device: &Device) -> Result<Model> {
         let vb = VarBuilder::from_varmap(varmap, DType::F32, device);
         let nn = NerualNet::new(vb, device)?;
-        Ok(Model {
-            nn,
-
-        })
+        Ok(Model { nn })
     }
 
-    pub fn load(device:&Device,  data: &[u8]) -> Result<Self> {
-        let vb = VarBuilder::from_slice_safetensors(data, DType::F32,device)?;
+    pub fn load(device: &Device, data: &[u8]) -> Result<Self> {
+        let vb = VarBuilder::from_slice_safetensors(data, DType::F32, device)?;
         let nn = NerualNet::new(vb, &Device::Cpu)?;
-        Ok(Model{
-            nn,
-        })
+        Ok(Model { nn })
     }
 
     pub fn predict(&self, state: &(Tensor, Tensor), rng: &mut ThreadRng) -> Result<usize> {
@@ -171,9 +160,9 @@ impl Model {
             let logits = self.nn.forward(state).unwrap().squeeze(0).unwrap();
             let action_probs = softmax(&logits, 0).unwrap().squeeze(0).unwrap();
 
-            let select: u32 = action_probs.argmax(0).unwrap().to_scalar().unwrap();
-            // let select =
-            // weighted_sample(action_probs.clone().to_vec1::<f32>().unwrap(), rng)? as u32;
+            // let select: u32 = action_probs.argmax(0).unwrap().to_scalar().unwrap();
+            let select =
+            weighted_sample(action_probs.clone().to_vec1::<f32>().unwrap(), rng)? as u32;
             assert!(select < 4);
             trace!(
                 "Action Probability {:?} Selected {:?}",
@@ -289,10 +278,8 @@ pub fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], [u32; 4], Vec<u32>, Vec<
             score += 1;
         }
         moves[steps[i].action as usize] += 1;
-        if *reward != 0.0 {
-            acc_reward = *reward / size as f32;
-        }
-        acc_reward *= 0.95;
+
+        acc_reward += *reward / size as f32;
         *reward = acc_reward;
     }
     games.push(score);
