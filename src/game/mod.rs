@@ -50,7 +50,7 @@ impl GameState {
     pub fn reward(&self) -> f32 {
         return match self {
             GameState::Running => 0.0,
-            GameState::AteFood => 1.0,
+            GameState::AteFood => 2.0,
             GameState::WastedMoves => -0.1,
             GameState::Won => 5.0,
             _ => -1.0,

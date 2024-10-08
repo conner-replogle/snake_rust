@@ -176,9 +176,9 @@ fn main() -> Result<()> {
                 game_thread(
                     state_tx,
                     &device,
-                    50 * SIZES[3].0.min(200),
-                    SIZES[3].0,
-                    SIZES[3].1,
+                    50 * SIZES[i].0.min(200),
+                    SIZES[i].0,
+                    SIZES[i].1,
                 )
             });
             handles.push((i, handle));

@@ -91,7 +91,7 @@ impl NerualNet {
                 out_c,
                 k,
                 Conv2dConfig {
-                    padding:1,
+                    padding: 1,
                     ..Default::default()
                 },
                 vb.pp("conv2d"),
@@ -99,11 +99,11 @@ impl NerualNet {
             .add(Activation::Relu)
             .add_fn(|a| global_max_pool2d(a)?.flatten_from(1)); // Global pooling to handle variable input sizes
         let num_seq = seq()
-            .add(linear(12, 64, vb.pp("num_linear1"))?)
+            .add(linear(12, 32, vb.pp("num_linear1"))?)
             .add(Activation::Relu);
 
         let output_seq = seq()
-            .add(linear(64+64, 128, vb.pp("out_linear1"))?)
+            .add(linear(16 + 32, 128, vb.pp("out_linear1"))?)
             .add(Activation::Relu)
             .add(linear(128, 4, vb.pp("out_linear2"))?);
         return Ok(NerualNet {
@@ -121,18 +121,15 @@ impl NerualNet {
         let conv = self.conv_net.forward(&input.0)?;
 
         let num = self.num_net.forward(&input.1)?;
-        let num = num.zeros_like()?;
+        // let num = num.zeros_like()?;
 
         let conv = conv.zeros_like()?;
         let out = self.out_net.forward(&Tensor::cat(&[conv, num], 1)?);
         return out;
     }
 }
-impl NerualNet{
-    pub fn draw(){
-
-
-    }
+impl NerualNet {
+    pub fn draw() {}
 }
 
 pub struct Model {
@@ -159,7 +156,7 @@ impl Model {
 
             // let select: u32 = action_probs.argmax(0).unwrap().to_scalar().unwrap();
             let select =
-            weighted_sample(action_probs.clone().to_vec1::<f32>().unwrap(), rng)? as u32;
+                weighted_sample(action_probs.clone().to_vec1::<f32>().unwrap(), rng)? as u32;
             assert!(select < 4);
             trace!(
                 "Action Probability {:?} Selected {:?}",
@@ -273,10 +270,11 @@ pub fn accumulate_rewards(steps: &[Step]) -> ([u32; 4], [u32; 4], Vec<u32>, Vec<
         }
         if steps[i].state == GameState::AteFood {
             score += 1;
+            acc_reward = 0.0;
         }
         moves[steps[i].action as usize] += 1;
 
-        acc_reward += *reward / size as f32;
+        acc_reward += *reward * 5.0 / size as f32;
         *reward = acc_reward;
     }
     games.push(score);
