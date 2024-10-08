@@ -83,39 +83,29 @@ pub struct NerualNet {
 }
 impl NerualNet {
     pub fn new(vb: VarBuilder, device: &Device) -> Result<Self> {
-        let out_c = 32;
-        let k = 3;
+        let out_c = 16;
+        let k = 6;
         let conv_seq = seq()
             .add(conv2d(
                 4,
                 out_c,
                 k,
                 Conv2dConfig {
-                    padding: 1,
+                    padding:1,
                     ..Default::default()
                 },
                 vb.pp("conv2d"),
             )?)
-            .add(conv2d(
-                out_c,
-                16,
-                5,
-                Conv2dConfig {
-                    padding: 1,
-                    ..Default::default()
-                },
-                vb.pp("conv2d2"),
-            )?)
             .add(Activation::Relu)
-            .add_fn(|a| a.flatten_from(1)); // Global pooling to handle variable input sizes
+            .add_fn(|a| global_max_pool2d(a)?.flatten_from(1)); // Global pooling to handle variable input sizes
         let num_seq = seq()
             .add(linear(12, 64, vb.pp("num_linear1"))?)
             .add(Activation::Relu);
 
         let output_seq = seq()
-            .add(linear(2768, 256, vb.pp("out_linear1"))?)
+            .add(linear(64+64, 128, vb.pp("out_linear1"))?)
             .add(Activation::Relu)
-            .add(linear(256, 4, vb.pp("out_linear2"))?);
+            .add(linear(128, 4, vb.pp("out_linear2"))?);
         return Ok(NerualNet {
             conv_net: conv_seq,
             num_net: num_seq,
@@ -133,37 +123,33 @@ impl NerualNet {
         let num = self.num_net.forward(&input.1)?;
         let num = num.zeros_like()?;
 
-        // let conv = conv.zeros_like()?;
+        let conv = conv.zeros_like()?;
         let out = self.out_net.forward(&Tensor::cat(&[conv, num], 1)?);
         return out;
+    }
+}
+impl NerualNet{
+    pub fn draw(){
+
+
     }
 }
 
 pub struct Model {
     nn: NerualNet,
-
 }
 
 impl Model {
-    pub fn new(
-        varmap: &VarMap,
-        device: &Device
-
-    ) -> Result<Model> {
+    pub fn new(varmap: &VarMap, device: &Device) -> Result<Model> {
         let vb = VarBuilder::from_varmap(varmap, DType::F32, device);
         let nn = NerualNet::new(vb, device)?;
-        Ok(Model {
-            nn,
-
-        })
+        Ok(Model { nn })
     }
 
-    pub fn load(device:&Device,  data: &[u8]) -> Result<Self> {
-        let vb = VarBuilder::from_slice_safetensors(data, DType::F32,device)?;
+    pub fn load(device: &Device, data: &[u8]) -> Result<Self> {
+        let vb = VarBuilder::from_slice_safetensors(data, DType::F32, device)?;
         let nn = NerualNet::new(vb, &Device::Cpu)?;
-        Ok(Model{
-            nn,
-        })
+        Ok(Model { nn })
     }
 
     pub fn predict(&self, state: &(Tensor, Tensor), rng: &mut ThreadRng) -> Result<usize> {
